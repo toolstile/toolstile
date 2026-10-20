@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security vulnerability
-    url: https://github.com/toolstile/toolstile/security/advisories/new
-    about: Send vulnerability details privately.
   - name: Account and billing support
     url: mailto:support@toolstile.com
     about: Contact support privately about your account or subscription.
