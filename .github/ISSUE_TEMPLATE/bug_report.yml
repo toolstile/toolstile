@@ -1,0 +1,28 @@
+name: Bug report
+description: Report something that is not working.
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include enough detail for us to reproduce the problem.
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Agent app and version
+      placeholder: Claude Code, Codex, Cursor, Claude Desktop, or another client
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional details
+      description: Browser, operating system, screenshots, or relevant errors. Remove tokens, credentials, and personal data.

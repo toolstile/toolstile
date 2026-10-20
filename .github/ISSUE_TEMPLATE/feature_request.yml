@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest an improvement to Toolstile.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the workflow or problem you want to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: What would make this easier?
+    validations:
+      required: true
