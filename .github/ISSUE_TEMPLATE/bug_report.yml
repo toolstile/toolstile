@@ -19,10 +19,10 @@ body:
   - type: input
     id: client
     attributes:
-      label: Agent app and version
-      placeholder: Claude Code, Codex, Cursor, Claude Desktop, or another client
+      label: Agent app or browser and version
+      description: Where did this happen? Include the app or browser name and version.
   - type: textarea
     id: context
     attributes:
       label: Additional details
-      description: Browser, operating system, screenshots, or relevant errors. Remove tokens, credentials, and personal data.
+      description: Browser, operating system, screenshots, or relevant errors. Remove tokens, credentials, private MCP URLs, and personal data.
