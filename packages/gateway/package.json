@@ -1,0 +1,25 @@
+{
+  "name": "@toolstile/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "browser": null,
+      "default": "./src/index.ts"
+    },
+    "./request-body": {
+      "browser": null,
+      "default": "./src/request-body.ts"
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "@modelcontextprotocol/client": "2.3.1",
+    "zod": "4.6.7",
+    "ipaddr.js": "2.5.0",
+    "undici": "8.12.2",
+    "@toolstile/database": "workspace:*"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,45 @@
+{
+  "name": "toolstile",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "prepare": "vp config --no-agent || echo Skipped Vite+ commit hook setup",
+    "dev": "pnpm --filter @toolstile/web dev",
+    "build": "pnpm -r build",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:local": "node scripts/test-local.mjs",
+    "db:generate": "pnpm --filter @toolstile/web db:generate",
+    "db:migrate": "pnpm --filter @toolstile/web db:migrate",
+    "bootstrap": "pnpm --filter @toolstile/web bootstrap",
+    "format": "vp fmt packages apps/web/src apps/web/scripts tests scripts",
+    "lint": "vp lint packages apps/web/src apps/web/scripts tests scripts && node lint/json-keys.mjs packages apps/web/src apps/web/scripts tests scripts",
+    "catalog:discover": "pnpm --filter @toolstile/web catalog:discover",
+    "catalog:pull": "pnpm --filter @toolstile/web catalog:pull",
+    "security:check": "node scripts/security-check.mjs",
+    "local": "node scripts/local.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@toolstile/api": "workspace:*",
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
+    "typescript": "7.1.0-beta",
+    "vite-plus": "1.5.1",
+    "vitest": "5.1.0",
+    "pg": "8.23.1"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "tsx": "4.23.15"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@toolstile/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "start": "node --env-file-if-exists=.env .output/server/index.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "operator": "tsx --env-file-if-exists=.env scripts/operator.ts",
+    "bootstrap": "tsx --env-file-if-exists=.env scripts/bootstrap.ts",
+    "catalog:discover": "tsx --env-file-if-exists=.env scripts/catalog-discover.ts",
+    "catalog:pull": "tsx --env-file-if-exists=.env scripts/catalog-pull.ts"
+  },
+  "dependencies": {
+    "@orpc/client": "1.15.7",
+    "@orpc/server": "1.15.7",
+    "@phosphor-icons/react": "2.1.10",
+    "@stylexjs/stylex": "0.19.1",
+    "@tanstack/react-router": "1.170.45",
+    "@tanstack/react-start": "1.169.3",
+    "@toolstile/api": "workspace:*",
+    "@toolstile/auth": "workspace:*",
+    "@toolstile/database": "workspace:*",
+    "@toolstile/gateway": "workspace:*",
+    "@toolstile/ui": "workspace:*",
+    "better-auth": "1.7.11",
+    "drizzle-orm": "0.45.4",
+    "nitro": "3.0.260903-beta",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@stylexjs/unplugin": "0.19.1",
+    "@vitejs/plugin-react": "6.1.2",
+    "drizzle-kit": "0.31.11",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.5.1",
+    "vite-plus": "1.5.1"
+  }
+}

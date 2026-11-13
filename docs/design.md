@@ -1,0 +1,33 @@
+# Interface baseline
+
+Use the cobalt/graphite palette, IBM Plex Sans for interface copy and IBM Plex Mono for identifiers. Phosphor supplies interface icons. The brand is a merging-route symbol with a rounded wordmark. The shared `Brand` component uses an alpha mask derived from the brand artwork, preserving the lettering separately from interface fonts. Semantic colors supply cobalt and text ink in both themes; the same symbol supplies the browser icon.
+
+The lockup is a vector React component, `Brand` in `packages/ui/src/Brand.tsx` (with `JunctionMark` for the symbol alone). Its paths were traced from the reference artwork, and the component keeps that composition: the symbol at 0.9 scale on the wordmark baseline and a 0.45 cap-height gap. Sidebar and site header use the 14px lockup, sign-in pages the 22px lockup and the compact rail the symbol alone; do not substitute a generic interface icon or font for this lockup.
+
+Light and dark have equal priority. Follow the system initially, with manual overrides. The cobalt accent and the lockup are fixed; the rest of this baseline may evolve when it makes the interface clearer. Use 6px corners (4px for small tags) and a 4px spacing rhythm (`space.*`). Controls are 32px with 28px row and toolbar actions and 36px tabs; under `@media (pointer: coarse)` every target grows to 44px and inputs to 16px text, defined once in `size.*`.
+
+Type roles: page titles 22/30/600; row titles 14/500; body and secondary text 14/22 or 13/20, secondary in muted colour; meta, counts and timestamps 12/16 muted; column and section headers 12/500 muted; identifiers in IBM Plex Mono at 12–13px (13px in text colour when the identifier is the row's subject, 12px muted when secondary). Use weight 600 only for page titles and primary buttons; only 400, 500 and 600 are loaded. Use tabular numerals for counts, times and durations. Dashboard pages have 24px padding (20px at ≤1100px, 16px at ≤760px), and the page header leaves 24px before the first content.
+
+Statuses use `StatusBadge`: a 6px semantic dot beside a plain 13px label, never a filled pill. Rows use two densities: 56px for two-line entity rows and 40px for single-line data rows. Group headers inside a list (device groups, review sections, day groups) are 32px bands on `colors.band` with a 12px/500 muted label and a "· N" count. Logo and agent tiles are white in light and a raised dark tile in dark; dark monochrome marks invert in dark mode.
+
+Surfaces follow four planes and never nest. The page carries headers, sections, forms, notices and empty states flat. One elevated container (`elevation.low`) frames each record collection or set of selectable tiles. Menus, selects and toasts use `elevation.medium`; dialogs `elevation.high`. Inside an elevated surface, group by spacing, bands and hairline row dividers, never by another card. Lines are hairlines only.
+
+Account pages (sign-in, sign-up, recovery, device approval) share `AuthFrame`: one 320px column, flat on the page, with centred headings, standard 32px controls and no card. From 1100px a story panel on `colors.sidebarSurface` sits beside it, with the 22px lockup, the promise in one sentence and a diagram: agent app tiles route through a cobalt gateway tile to connection tiles. Routes draw once on load and lines near the pointer turn cobalt. Then a three-scene story loops: each agent in turn sees only the connections it is granted (the others fade to dotted routes), and its call is forwarded, approved in a small Allow/Deny popup by a drawn cursor, or denied at the gateway; the answer then returns to the agent along the same route, green for a result and red for a refusal. Narrower screens get the column alone under the lockup.
+
+Use sidebar navigation with the one-agent access editor (one agent at a time, every grant action available) and guided permission controls. Stage edits and apply only on Save. The default screen is MCP connections, emphasizing accounts, status and reconnect actions. First-time setup should follow MCP → agent → permissions → verification; no automatic tool execution. The responsive dashboard must work from a phone.
+
+Use StyleX for component styling. `packages/ui/src/tokens.stylex.ts` exposes typed semantic variables, initially bridged to the existing light/dark foundation in `packages/ui/src/styles.css`. The authorization screen is migrated; other existing component styles migrate as they are worked on. Legacy rules live in a lower CSS layer so compiled StyleX can compose predictably. Global resets and font loading may remain CSS. Keep colors semantic and never rely on color alone for status. Font notices are in the app’s public license directory.
+
+## Controls and interaction
+
+Use the shared Sonner toasts for feedback and `@tanstack/markdown` for Markdown rendering.
+
+Keyboard focus must remain visible. Match each control's `:focus-visible` appearance to its `:hover` appearance rather than adding outline rings; text fields change their border colour. Controls without their own hover treatment use the shared hover wash. Verify both pointer and keyboard states in both themes.
+
+Use direct icon buttons with tooltips for row actions rather than a menu that adds another click. Row actions stay hidden until the row is hovered or contains focus (always visible on coarse pointers); recovery actions such as Sign in or Retry stay visible. Use underline tabs to switch page views and the compact segmented control for filters within one collection. Clicking an editable name starts renaming. Inline editors inherit the text's font and position, size to their content and cause no layout shift; save/cancel buttons occupy the former pencil position with a visible gap from the field.
+
+Build modals as `div` elements with `role="dialog"` and `aria-modal`, never native `<dialog>` or `showModal`. Trap focus, make surrounding content inert, handle Escape and return focus to the trigger. Preserve the backdrop fade.
+
+Keep decorative separators subtle (roughly 1.3–1.8:1 against their surface); interactive-control boundaries and text have their own contrast requirements. Use elevation and surface/text contrast rather than heavier borders. Check the semantic palette with `packages/ui/scripts/contrast.ts`.
+
+Motion is subtle and uses the `motion` tokens. Surfaces that arrive settle in with `motion.settle` (expo-out) over `motion.enter`. Menus and select popups use `popupClassName`: they scale from 0.96 at their trigger-side origin and shrink back toward it as they fade on close. Dialog cards rise 6px from 0.97 scale. Theme changes crossfade the page through a view transition. Page navigation does not animate. Every motion has a reduced-motion fallback that removes movement.

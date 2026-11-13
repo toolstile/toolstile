@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in Toolstile doesn't work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Do not include tokens, API keys, account emails, workspace names, request arguments or results. For account or billing problems, email support@toolstile.com instead. Report security problems privately as described in SECURITY.md.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and this hasn't been reported.
+          required: true
+        - label: This report contains no credentials or private data.
+          required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Where do you run Toolstile?
+      options:
+        - Managed service (toolstile.com)
+        - Self-hosted
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - MCP connections (adding or signing in to a server)
+        - Agent sign-in and devices
+        - Access and approvals
+        - Tool calls through the gateway
+        - Shared accounts and team workspaces
+        - Activity
+        - Billing and usage
+        - Self-hosted installation or upgrade
+        - Dashboard
+        - CLI (npx toolstile)
+        - Plugins
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and include any error message shown.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open MCP connections and add ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: AI app and version
+      description: For example Claude Code 2.4.1, Codex CLI, Cursor 2.1. Leave blank if not relevant.
+  - type: input
+    id: server
+    attributes:
+      label: MCP server
+      description: The public service or server URL involved, if any. Never include a token.
+  - type: input
+    id: version
+    attributes:
+      label: Self-hosted commit
+      description: Output of `git rev-parse --short HEAD`, if you self-host.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots or logs help. Redact anything private first.

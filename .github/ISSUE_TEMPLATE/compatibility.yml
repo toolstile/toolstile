@@ -1,0 +1,56 @@
+name: MCP server or client compatibility
+description: A remote MCP server won't connect, or an AI app can't sign in to Toolstile.
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The managed service connects to public HTTPS MCP servers on port 443. Self-hosted instances can also reach private-network servers when the operator allows it. Stdio servers are not supported.
+
+        Issues are public. Do not include tokens, API keys, account emails, workspace names, request arguments or results, or other private data. Report security problems privately as described in SECURITY.md.
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Where do you run Toolstile?
+      options:
+        - Managed service (toolstile.com)
+        - Self-hosted
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What's affected?
+      options:
+        - An MCP server (upstream connection)
+        - An AI app or MCP client (signing in to Toolstile)
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Server or client name
+      placeholder: e.g. Linear, Notion, Gemini CLI
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Public MCP endpoint or documentation link
+      description: For a server, its public MCP URL or setup docs. Never include a token.
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Authentication
+      options:
+        - OAuth sign-in
+        - Bearer token or API key
+        - None
+        - Not sure
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: The step that failed and any error or connection status shown.
+    validations:
+      required: true

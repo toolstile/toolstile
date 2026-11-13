@@ -1,0 +1,59 @@
+{
+  "name": "@toolstile/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contract": "./src/contract.ts",
+    "./client": "./src/client.ts",
+    "./server": {
+      "browser": null,
+      "default": "./src/server.ts"
+    },
+    "./approval-contract": "./src/approval-contract.ts",
+    "./approval-server": {
+      "browser": null,
+      "default": "./src/approval-server.ts"
+    },
+    "./tool-review-contract": "./src/tool-review-contract.ts",
+    "./tool-review-server": {
+      "browser": null,
+      "default": "./src/tool-review-server.ts"
+    },
+    "./setup-contract": "./src/setup-contract.ts",
+    "./setup-server": {
+      "browser": null,
+      "default": "./src/setup.ts"
+    },
+    "./agent-tools": {
+      "browser": null,
+      "default": "./src/agent-tools.ts"
+    },
+    "./connectors": "./src/connectors.ts",
+    "./connector-client": "./src/connector-client.ts",
+    "./connector-server": {
+      "browser": null,
+      "default": "./src/connector-server.ts"
+    },
+    "./catalog-source": {
+      "browser": null,
+      "default": "./src/catalog-source.ts"
+    },
+    "./catalog-snapshot": {
+      "browser": null,
+      "default": "./src/catalog-snapshot.ts"
+    },
+    "./connector-logos": {
+      "browser": null,
+      "default": "./src/connector-logos.ts"
+    }
+  },
+  "dependencies": {
+    "@orpc/server": "1.15.7",
+    "@orpc/client": "1.15.7",
+    "zod": "4.6.7",
+    "@toolstile/gateway": "workspace:*",
+    "@toolstile/database": "workspace:*"
+  },
+  "license": "Apache-2.0"
+}

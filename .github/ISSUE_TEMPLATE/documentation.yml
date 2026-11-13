@@ -1,0 +1,26 @@
+name: Documentation
+description: Something in the docs is wrong, unclear or missing.
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Do not include tokens, API keys, account emails, workspace names, request arguments or results, or other private data. Report security problems privately as described in SECURITY.md.
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: A toolstile.com docs URL or a file in this repository.
+      placeholder: https://www.toolstile.com/docs/... or docs/containers.md
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change

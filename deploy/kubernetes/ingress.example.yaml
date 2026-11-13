@@ -1,0 +1,20 @@
+# Optional: adapt the class, host, controller-specific SSE/timeouts and TLS secret.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: toolstile
+spec:
+  ingressClassName: your-ingress-class
+  tls:
+    - hosts: [toolstile.example.com]
+      secretName: toolstile-tls
+  rules:
+    - host: toolstile.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: toolstile
+                port: {name: http}

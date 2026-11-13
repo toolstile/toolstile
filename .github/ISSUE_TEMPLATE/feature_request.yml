@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest a change or addition to Toolstile.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. If someone already asked, add a 👍 reaction and any detail about your use case in a comment.
+
+        Issues are public. Do not include tokens, API keys, account emails, workspace names, request arguments or results, or other private data. Report security problems privately as described in SECURITY.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the workflow or problem, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+      description: How you'd like Toolstile to handle it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do today?
+      description: Workarounds or other tools you use.
+  - type: dropdown
+    id: workspace
+    attributes:
+      label: Workspace type
+      options:
+        - Personal
+        - Team
+        - Both
+        - Self-hosted

@@ -1,0 +1,64 @@
+{
+	"name": "@toolstile/ui",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"sideEffects": [
+		"*.css"
+	],
+	"exports": {
+		".": "./src/index.tsx",
+		"./access-rules": "./src/access-rules.ts",
+		"./select": "./src/SelectField.tsx",
+		"./styles.css": "./src/styles.css",
+		"./tokens.stylex": "./src/tokens.stylex.ts",
+		"./setup": "./src/SetupGuide.tsx",
+		"./setup-contract": "./src/setup-contract.ts",
+		"./controls": "./src/Control.styles.ts",
+		"./brand": "./src/Brand.tsx",
+		"./theme-switcher": "./src/ThemeSwitcher.tsx",
+		"./shell": "./src/DashboardShell.tsx",
+		"./connections-page": "./src/ConnectionsPage.tsx",
+		"./devices-page": "./src/DevicesPage.tsx",
+		"./access-page": "./src/AccessPage.tsx",
+		"./activity-page": "./src/ActivityPage.tsx",
+		"./account-navigation": "./src/AccountNavigation.ts",
+		"./auth-loading": "./src/AuthLoading.tsx",
+		"./account-session": "./src/AccountSession.ts",
+		"./account-gate": "./src/AccountSessionBoundary.tsx",
+		"./layout": "./src/Layout.styles.ts",
+		"./connectors": "./src/ConnectorCatalog.tsx",
+		"./connections-navigation": "./src/CatalogNavigation.tsx",
+		"./connector-logo": "./src/ConnectorLogo.tsx",
+		"./toast": "./src/Toast.tsx",
+		"./markdown": "./src/markdown.ts",
+		"./approvals": "./src/ApprovalPanel.tsx",
+		"./tool-reviews": "./src/ToolReviewPanel.tsx",
+		"./appearance": "./src/Appearance.tsx",
+		"./auth-navigation": "./src/AuthNavigation.ts",
+		"./status-badge": "./src/StatusBadge.tsx",
+		"./url-text": "./src/UrlText.tsx",
+		"./checkbox": "./src/Checkbox.tsx"
+	},
+	"dependencies": {
+		"@base-ui/react": "1.9.0",
+		"@fontsource/ibm-plex-mono": "5.3.0",
+		"@fontsource/ibm-plex-sans": "5.3.0",
+		"@phosphor-icons/react": "2.1.10",
+		"@stylexjs/stylex": "0.19.1",
+		"@tanstack/markdown": "1.0.0",
+		"@toolstile/api": "workspace:*",
+		"sonner": "2.0.8"
+	},
+	"license": "Apache-2.0",
+	"peerDependencies": {
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1"
+	},
+	"devDependencies": {
+		"@types/react": "19.3.0",
+		"@types/react-dom": "19.3.0",
+		"react": "19.3.1",
+		"react-dom": "19.3.1"
+	}
+}

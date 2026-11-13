@@ -1,0 +1,10 @@
+import { createFileRoute, redirect } from "@tanstack/react-router";
+export const Route = createFileRoute("/app/settings/")({
+	beforeLoad: () => {
+		throw redirect({
+			to: "/app/settings/endpoint",
+			search: (previous) => previous,
+			replace: true,
+		});
+	},
+});

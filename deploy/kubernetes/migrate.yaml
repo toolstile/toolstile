@@ -1,0 +1,40 @@
+# Render separately; use the exact same image as the Deployment.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: toolstile-migrate
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: toolstile:local
+          imagePullPolicy: IfNotPresent
+          args: [migrate]
+          env:
+            - name: DATABASE_URL_FILE
+              value: /run/secrets/database_url
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: secrets, mountPath: /run/secrets, readOnly: true}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: toolstile-secrets
+            defaultMode: 0440

@@ -1,0 +1,398 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+/*
+ * Accent gradients: the primary button's top highlight (Control.styles.ts
+ * `primary`) and the dark-only secondary control sheen (--control-sheen). Keep
+ * other surfaces flat.
+ */
+@layer legacy {
+	:root {
+		font-family: "IBM Plex Sans", sans-serif;
+		font-size: 14px;
+		line-height: 22px;
+		color-scheme: light dark;
+		scrollbar-gutter: stable;
+		/* Light palette: an elegant, high-contrast look. The page is white and
+		   carries flat sections directly; the few remaining cards (record
+		   collections, selectable tiles) are white too, separated by soft
+		   two-layer shadows and a 7% ink ring, and the sidebar sits one soft step
+		   below the page. Lines are hairlines only (in-card row dividers, the
+		   sidebar edge); form controls use --line-strong at rest (about 3:1).
+		   Hover is a translucent ink overlay, quieter than the blue-tinted
+		   selected state. Surface and page are both white, so cards separate by
+		   ring and shadow alone. actionSoft is the action hue mixed into white
+		   (selected navigation, primary hover halo, "Needs sign-in").
+		   packages/ui/scripts/contrast.ts measures every text, control, hairline
+		   and logo pairing against its target; run it after changing a value. */
+		--page: #fff;
+		--surface: #fff;
+		--text: #0b1220;
+		--muted: #566073;
+		--line: #d0d6e0;
+		--line-strong: #8a93a3;
+		--action: #1c3fd6;
+		--on-action: #fff;
+		--good: #0a7549;
+		--bad: #b01b30;
+		--hover: #eef1f6;
+		--warning: #a04a07;
+		--warning-tint: #fdf2d0;
+		--action-soft: #e3e9fd;
+		--sidebar-surface: #f3f5f9;
+		--nav-selected: #e2e8fd;
+		--band: #f8f9fb;
+		/* Control treatments. The light values keep the original light look
+		   (fills equal --action/--bad, a soft 16% top sheen, no glow); the dark
+		   blocks below give controls their own fill, sheen, ring and glow.
+		   Filled buttons: --action-fill / --bad-fill with --on-fill text. */
+		--action-fill: #1c3fd6;
+		--action-fill-hover: #1c3fd6;
+		--bad-fill: #b01b30;
+		--bad-fill-hover: #b01b30;
+		--on-fill: #fff;
+		--fill-hover-filter: brightness(1.06);
+		--primary-sheen: linear-gradient(
+			180deg,
+			rgb(255 255 255 / 0.16),
+			rgb(255 255 255 / 0) 60%
+		);
+		--primary-highlight: inset 0 1px 0 rgb(255 255 255 / 0.12);
+		--primary-shadow: 0 1px 2px rgb(16 24 40 / 0.12);
+		--primary-shadow-hover: 0 0 0 3px var(--action-soft);
+		--danger-shadow: none;
+		--danger-shadow-hover: 0 0 0 3px
+			color-mix(in srgb, var(--bad) 10%, transparent);
+		/* Secondary buttons, select triggers and the account button. */
+		--control-fill: var(--surface);
+		--control-fill-hover: var(--hover);
+		--control-sheen: none;
+		--control-border: #cbd1dc;
+		--control-border-hover: #b3bbca;
+		--control-shadow: none;
+		/* Quiet-button and menu-item hover, and the highlighted item's ring. */
+		--hover-overlay: rgb(40 55 90 / 0.07);
+		--item-ring: none;
+		/* Menus, select popups and dialogs; the scrim behind dialogs. */
+		--popover: #fff;
+		--backdrop: rgb(11 18 32 / 0.5);
+		/* Text inputs. */
+		--input: #fff;
+		--input-border: var(--line-strong);
+		--input-border-hover: var(--muted);
+		--input-shadow: none;
+		--focus-ring: color-mix(in srgb, var(--action) 60%, transparent);
+		/* Status badge fills (StatusBadge.tsx) and the dot treatment. */
+		--badge-good: color-mix(in srgb, var(--good) 12%, transparent);
+		--badge-warning: var(--warning-tint);
+		--badge-action: var(--action-soft);
+		--badge-neutral: color-mix(in srgb, var(--muted) 10%, transparent);
+		--badge-dot-filter: none;
+		/* Selected navigation indicator and the connection monogram edge. */
+		--nav-indicator-glow: none;
+		--tile-ring: inset 0 0 0 1px rgb(0 0 0 / 0.04);
+		/* 0 in light, 1 in dark: lets per-element colours switch theme through
+		   color-mix() (ConnectionMark). */
+		--theme-dark: 0;
+		/* Elevation: a 1px ring in place of a border, then soft ambient and
+		   contact shadows. */
+		--ring: rgb(16 24 40 / 0.07);
+		--elevation-low:
+			0 0 0 1px var(--ring), 0 1px 2px rgb(16 24 40 / 0.05),
+			0 2px 6px -1px rgb(16 24 40 / 0.06);
+		--elevation-medium:
+			0 0 0 1px var(--ring), 0 4px 10px -2px rgb(16 24 40 / 0.08),
+			0 14px 28px -6px rgb(16 24 40 / 0.12);
+		--elevation-high:
+			0 0 0 1px var(--ring), 0 10px 20px -8px rgb(16 24 40 / 0.14),
+			0 28px 56px -12px rgb(16 24 40 / 0.22);
+		--space: 16px;
+		/* Dashboard content padding: 24px, 20px at <=1100px, 16px at <=760px. */
+		--page-padding: 24px;
+		--table-padding: 8px 12px;
+		--field-gap: 12px;
+	}
+	@media (max-width: 1100px) {
+		:root {
+			--page-padding: 20px;
+		}
+	}
+	@media (max-width: 760px) {
+		:root {
+			--page-padding: 16px;
+		}
+	}
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme="light"]) {
+			/* Keep in sync with :root[data-theme="dark"] below (contrast.test.ts). */
+			--page: #0c0d11;
+			--surface: #1a1c24;
+			--text: #e9ebf0;
+			--muted: #a6aebb;
+			--line: #323745;
+			--line-strong: #555c6d;
+			--action: #84a9ff;
+			--on-action: #0a1026;
+			--good: #74dcaa;
+			--bad: #ff8a98;
+			--hover: #22252f;
+			--warning: #f7c266;
+			--warning-tint: rgb(255 172 48 / 0.14);
+			--action-soft: #16234c;
+			--sidebar-surface: #121419;
+			--nav-selected: #16234c;
+			--band: rgb(255 255 255 / 0.03);
+			--theme-dark: 1;
+			--ring: rgb(255 255 255 / 0.09);
+			--elevation-low:
+				0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.55),
+				0 4px 12px -2px rgb(0 0 0 / 0.45);
+			--elevation-medium:
+				0 0 0 1px var(--ring), inset 0 1px 0 rgb(255 255 255 / 0.06),
+				0 10px 24px -6px rgb(0 0 0 / 0.6), 0 24px 56px -12px rgb(0 0 0 / 0.6);
+			--elevation-high:
+				0 0 0 1px var(--ring), inset 0 1px 0 rgb(255 255 255 / 0.07),
+				0 16px 32px -10px rgb(0 0 0 / 0.65), 0 40px 88px -20px rgb(0 0 0 / 0.65);
+			--action-fill: #3864eb;
+			--action-fill-hover: #3360e4;
+			--bad-fill: #c42744;
+			--bad-fill-hover: #c42744;
+			--on-fill: #fff;
+			--fill-hover-filter: none;
+			--primary-sheen: linear-gradient(
+				180deg,
+				rgb(255 255 255 / 0.04),
+				rgb(255 255 255 / 0) 60%
+			);
+			--primary-highlight: inset 0 1px 0 rgb(255 255 255 / 0.18);
+			--primary-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+			--primary-shadow-hover: 0 0 0 3px rgb(56 100 235 / 0.35);
+			--danger-shadow:
+				inset 0 1px 0 rgb(255 255 255 / 0.16), 0 0 0 1px rgb(196 39 68 / 0.35),
+				0 8px 24px rgb(196 39 68 / 0.22);
+			--danger-shadow-hover:
+				inset 0 1px 0 rgb(255 255 255 / 0.16), 0 0 0 1px rgb(196 39 68 / 0.5),
+				0 10px 28px rgb(196 39 68 / 0.34);
+			--control-fill: transparent;
+			--control-fill-hover: rgb(255 255 255 / 0.05);
+			--control-sheen: linear-gradient(
+				180deg,
+				rgb(255 255 255 / 0.07),
+				rgb(255 255 255 / 0.035)
+			);
+			--control-border: rgb(255 255 255 / 0.2);
+			--control-border-hover: rgb(255 255 255 / 0.3);
+			--control-shadow:
+				inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.4);
+			--hover-overlay: rgb(255 255 255 / 0.07);
+			--item-ring: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+			--popover: #272a35;
+			--backdrop: rgb(0 0 0 / 0.65);
+			--input: #0e1015;
+			--input-border: rgb(255 255 255 / 0.34);
+			--input-border-hover: rgb(255 255 255 / 0.44);
+			--input-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
+			--focus-ring: color-mix(in srgb, var(--action) 45%, transparent);
+			--badge-good: rgb(64 208 144 / 0.16);
+			--badge-warning: rgb(255 172 48 / 0.16);
+			--badge-action: rgb(72 104 255 / 0.2);
+			--badge-neutral: rgb(148 163 184 / 0.14);
+			--badge-dot-filter: none;
+			--nav-indicator-glow: none;
+			--tile-ring: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+		}
+	}
+	:root[data-theme="dark"] {
+		/* Dark palette: a near-black page, a sidebar a hair lighter than the
+		   page and cards one clear step lighter again, lifted by deep shadows and
+		   a white ring instead of a line. Menus and dialogs sit one tone above
+		   cards on --popover; inputs sit one tone below behind a white ring of
+		   about 3:1. Lines are hairlines only. Selected navigation, menu rows and
+		   settings tabs use the navy actionSoft; hover is a neutral white overlay.
+		   The theme switcher's chosen segment is a raised 10% white chip (below).
+		   The primary is the brand blue on the light theme's hue with white
+		   text, a faint 4% top sheen (stronger sheen drops white below 4.5:1),
+		   an 18% inner top highlight and a blue halo on hover; its hover fill is
+		   a step darker, never lighter. --action is a lighter blue on the same
+		   hue for links, tab underlines and selected text. Secondary buttons,
+		   selects and the account button get a white sheen, a 20% white ring and
+		   a 6% inner highlight. Cards (--elevation-low) carry no top-edge
+		   highlight; popovers and dialogs (--elevation-medium/high) keep a 6-7%
+		   white inner highlight.
+		   packages/ui/scripts/contrast.ts measures every text, control, hairline
+		   and logo pairing against its target; run it after changing a value. */
+		--page: #0c0d11;
+		--surface: #1a1c24;
+		--text: #e9ebf0;
+		--muted: #a6aebb;
+		--line: #323745;
+		--line-strong: #555c6d;
+		--action: #84a9ff;
+		--on-action: #0a1026;
+		--good: #74dcaa;
+		--bad: #ff8a98;
+		--hover: #22252f;
+		--warning: #f7c266;
+		--warning-tint: rgb(255 172 48 / 0.14);
+		--action-soft: #16234c;
+		--sidebar-surface: #121419;
+		--nav-selected: #16234c;
+		--band: rgb(255 255 255 / 0.03);
+		--theme-dark: 1;
+		--ring: rgb(255 255 255 / 0.09);
+		--elevation-low:
+			0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / 0.55),
+			0 4px 12px -2px rgb(0 0 0 / 0.45);
+		--elevation-medium:
+			0 0 0 1px var(--ring), inset 0 1px 0 rgb(255 255 255 / 0.06),
+			0 10px 24px -6px rgb(0 0 0 / 0.6), 0 24px 56px -12px rgb(0 0 0 / 0.6);
+		--elevation-high:
+			0 0 0 1px var(--ring), inset 0 1px 0 rgb(255 255 255 / 0.07),
+			0 16px 32px -10px rgb(0 0 0 / 0.65), 0 40px 88px -20px rgb(0 0 0 / 0.65);
+		--action-fill: #3864eb;
+		--action-fill-hover: #3360e4;
+		--bad-fill: #c42744;
+		--bad-fill-hover: #c42744;
+		--on-fill: #fff;
+		--fill-hover-filter: none;
+		--primary-sheen: linear-gradient(
+			180deg,
+			rgb(255 255 255 / 0.04),
+			rgb(255 255 255 / 0) 60%
+		);
+		--primary-highlight: inset 0 1px 0 rgb(255 255 255 / 0.18);
+		--primary-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+		--primary-shadow-hover: 0 0 0 3px rgb(56 100 235 / 0.35);
+		--danger-shadow:
+			inset 0 1px 0 rgb(255 255 255 / 0.16), 0 0 0 1px rgb(196 39 68 / 0.35),
+			0 8px 24px rgb(196 39 68 / 0.22);
+		--danger-shadow-hover:
+			inset 0 1px 0 rgb(255 255 255 / 0.16), 0 0 0 1px rgb(196 39 68 / 0.5),
+			0 10px 28px rgb(196 39 68 / 0.34);
+		--control-fill: transparent;
+		--control-fill-hover: rgb(255 255 255 / 0.05);
+		--control-sheen: linear-gradient(
+			180deg,
+			rgb(255 255 255 / 0.07),
+			rgb(255 255 255 / 0.035)
+		);
+		--control-border: rgb(255 255 255 / 0.2);
+		--control-border-hover: rgb(255 255 255 / 0.3);
+		--control-shadow:
+			inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.4);
+		--hover-overlay: rgb(255 255 255 / 0.07);
+		--item-ring: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+		--popover: #272a35;
+		--backdrop: rgb(0 0 0 / 0.65);
+		--input: #0e1015;
+		--input-border: rgb(255 255 255 / 0.34);
+		--input-border-hover: rgb(255 255 255 / 0.44);
+		--input-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
+		--focus-ring: color-mix(in srgb, var(--action) 45%, transparent);
+		--badge-good: rgb(64 208 144 / 0.16);
+		--badge-warning: rgb(255 172 48 / 0.16);
+		--badge-action: rgb(72 104 255 / 0.2);
+		--badge-neutral: rgb(148 163 184 / 0.14);
+		--badge-dot-filter: none;
+		--nav-indicator-glow: none;
+		--tile-ring: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+	}
+	:root[data-theme="light"] {
+		color-scheme: light;
+	}
+	:root[data-theme="dark"] {
+		color-scheme: dark;
+	}
+	* {
+		box-sizing: border-box;
+	}
+	body {
+		margin: 0;
+		background: var(--page);
+		color: var(--text);
+	}
+	button,
+	input,
+	select,
+	textarea {
+		font: inherit;
+	}
+	/* Keyboard focus looks like hover: no ring. Components mirror their hover styles onto
+	   :focus-visible; anything without its own focus style gets the hover wash. */
+	:focus-visible {
+		outline: none;
+	}
+	/* Not on regions focused from code (tabindex -1), such as a heading after navigation. */
+	:focus-visible:not([tabindex="-1"]) {
+		background-color: var(--hover-overlay);
+	}
+	h1,
+	h2,
+	h3,
+	p {
+		margin-top: 0;
+	}
+	h1 {
+		font-size: 20px;
+		line-height: 28px;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		margin-bottom: 8px;
+	}
+	h2 {
+		font-size: 16px;
+		line-height: 24px;
+		font-weight: 600;
+	}
+	h3 {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 600;
+	}
+	/* Only 400, 500 and 600 are loaded; cap bold text so it never synthesizes. */
+	b,
+	strong,
+	th {
+		font-weight: 600;
+	}
+	p,
+	small {
+		color: var(--muted);
+	}
+	small {
+		display: block;
+		font-size: 12px;
+	}
+	code,
+	pre {
+		font-family: "IBM Plex Mono", monospace;
+		font-size: 12px;
+		line-height: 1.6;
+	}
+	code {
+		overflow-wrap: anywhere;
+	}
+	a {
+		color: var(--action);
+	}
+}
+
+/*
+ * The theme switcher's chosen segment follows the root attribute the bootstrap script sets before
+ * paint, so a server render (which cannot know the stored theme) never flashes "System" first.
+ * Unlayered and attribute-qualified so it outranks the segment's StyleX rest styles. The chip is the
+ * surface in light and a 10% white wash in dark, so it reads raised above the menu's inset track.
+ */
+:root[data-theme="light"] [data-theme-option="light"],
+:root[data-theme="dark"] [data-theme-option="dark"],
+:root:not([data-theme="light"], [data-theme="dark"])
+	[data-theme-option="system"] {
+	background-color: color-mix(
+		in srgb,
+		rgb(255 255 255 / 0.1) calc(var(--theme-dark) * 100%),
+		var(--surface)
+	);
+	color: var(--text);
+	box-shadow: var(--elevation-low);
+}

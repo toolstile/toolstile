@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-31T16:46:18.814Z",
+  "entries": [
+    {
+      "slug": "airtable",
+      "name": "Airtable",
+      "publisher": "Airtable",
+      "description": "Read and update Airtable bases, tables and records.",
+      "categories": [
+        "productivity",
+        "data"
+      ],
+      "keywords": [
+        "database",
+        "spreadsheet",
+        "records",
+        "tables",
+        "no-code"
+      ],
+      "capabilities": [
+        "Search and update records",
+        "Inspect bases and table schemas"
+      ],
+      "documentation": "https://support.airtable.com/articles/9897799762-using-the-airtable-mcp-server",
+      "endpoint": "https://mcp.airtable.com/mcp",
+      "authMethods": [
+        "oauth"
+      ],
+      "fields": [],
+      "requirements": "An Airtable account. Sign-in uses your Airtable permissions.",
+      "featured": true,
+      "logo": {
+        "sha256": "a331cf84f44d1c2e7807d8cd3142a4533be26b54f86871547cfd00225637a316",
+        "type": "png"
+      },
+      "toolSnapshot": {
+        "observedAt": "2026-10-29T05:21:01.000Z",
+        "source": "docs",
+        "tools": [
+          {
+            "name": "list_workspaces",
+            "description": "List workspaces you can access"
+          },
+          {
+            "name": "list_bases",
+            "description": "List bases or find one by name"
+          },
+          {
+            "name": "search_bases",
+            "description": "List bases or find one by name"
+          },
+          {
+            "name": "list_tables_for_base",
+            "description": "Return schemas for every table in a base"
+          },
+          {
+            "name": "get_table_schema",
+            "description": "Return a table's fields, IDs, types and options"
+          },
+          {
+            "name": "list_views_for_table",
+            "description": "List a table's views"
+          },
+          {
+            "name": "list_records_for_table",
+            "description": "List records with optional filtering and sorting"
+          },
+          {
+            "name": "search_records",
+            "description": "Search a table's records by keyword"
+          },
+          {
+            "name": "search_candidate_linked_records",
+            "description": "Find records that can go in a linked-record field"
+          },
+          {
+            "name": "list_records_for_page",
+            "description": "Read records shown on an interface page (works with interface-only access)"
+          },
+          {
+            "name": "get_record_for_page",
+            "description": "Read records shown on an interface page (works with interface-only access)"
+          },
+          {
+            "name": "create_records_for_table",
+            "description": "Add records (up to 10 per request)"
+          },
+          {
+            "name": "update_records_for_table",
+            "description": "Change specified fields on existing records"
+          },
+          {
+            "name": "delete_records_for_table",
+            "description": "Delete records by ID"
+          },
+          {
+            "name": "revert_action",
+            "description": "Undo an eligible earlier change by action ID"
+          },
+          {
+            "name": "create_table",
+            "description": "Add a table or change its name and description"
+          },
+          {
+            "name": "update_table",
+            "description": "Add a table or change its name and description"
+          },
+          {
+            "name": "delete_table",
+            "description": "Delete a whole table, including records, fields and views"
+          },
+          {
+            "name": "create_field",
+            "description": "Add a field or change its name, description or formula"
+          },
+          {
+            "name": "update_field",
+            "description": "Add a field or change its name, description or formula"
+          },
+          {
+            "name": "create_base",
+            "description": "Create a base in a workspace where you are a Creator"
+          },
+          {
+            "name": "create_interface",
+            "description": "Build a new interface or page"
+          },
+          {
+            "name": "create_page",
+            "description": "Build a new interface or page"
+          },
+          {
+            "name": "delete_interface",
+            "description": "Delete an interface (with all pages) or a page"
+          },
+          {
+            "name": "delete_page",
+            "description": "Delete an interface (with all pages) or a page"
+          },
+          {
+            "name": "get_form_schema",
+            "description": "Read a form's fields and rules"
+          },
+          {
+            "name": "submit_form",
+            "description": "Submit a form"
+          },
+          {
+            "name": "list_automations",
+            "description": "Read automations and their configuration"
+          },
+          {
+            "name": "get_automation",
+            "description": "Read automations and their configuration"
+          },
+          {
+            "name": "create_automation",
+            "description": "Draft an automation (stays off until enabled in Airtable)"
+          },
+          {
+            "name": "update_automation",
+            "description": "Overwrite an automation's draft configuration"
+          },
+          {
+            "name": "delete_automation",
+            "description": "Delete an automation that is turned off"
+          }
+        ],
+        "resources": [],
+        "prompts": []
+      }
+    },
+    {
+      "slug": "netlify",
+      "name": "Netlify",
+      "publisher": "Netlify",
+      "description": "Create, deploy and manage sites on Netlify.",
+      "categories": [
+        "development"
+      ],
+      "keywords": [
+        "deployments",
+        "hosting",
+        "sites",
+        "jamstack",
+        "frontend"
+      ],
+      "capabilities": [
+        "Create and deploy sites",
+        "Manage environment variables and forms"
+      ],
+      "documentation": "https://docs.netlify.com/build/build-with-ai/agent-setup-guides/agent-setup-overview/",
+      "endpoint": "https://netlify-mcp.netlify.app/mcp",
+      "authMethods": [
+        "oauth"
+      ],
+      "fields": [],
+      "requirements": "A Netlify account. Sign-in uses your Netlify permissions.",
+      "featured": true,
+      "logo": {
+        "sha256": "2d75abeaa53cab4c96ab976865f2a139412bce723aa57ed66e3b7f13d381bb26",
+        "type": "svg"
+      },
+      "toolSnapshot": null
+    }
+  ]
+}

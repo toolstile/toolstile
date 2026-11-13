@@ -1,0 +1,48 @@
+name: toolstile
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: toolstile
+      POSTGRES_DB: toolstile
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U toolstile -d toolstile']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    stop_grace_period: 60s
+  app:
+    image: ${TOOLSTILE_IMAGE:-toolstile:local}
+    build: .
+    init: true
+    environment:
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?Set the public HTTPS origin}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      BETTER_AUTH_SECRET_FILE: /run/secrets/auth_secret
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+    secrets: [database_url, auth_secret, encryption_key]
+    ports: ['127.0.0.1:${TOOLSTILE_PORT:-3000}:3000']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+    stop_grace_period: 35s
+secrets:
+  postgres_password:
+    file: ${TOOLSTILE_SECRETS_DIR:-./secrets}/postgres_password
+  database_url:
+    file: ${TOOLSTILE_SECRETS_DIR:-./secrets}/database_url
+  auth_secret:
+    file: ${TOOLSTILE_SECRETS_DIR:-./secrets}/auth_secret
+  encryption_key:
+    file: ${TOOLSTILE_SECRETS_DIR:-./secrets}/encryption_key
+volumes:
+  postgres_data:

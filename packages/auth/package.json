@@ -1,0 +1,29 @@
+{
+  "name": "@toolstile/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "browser": null,
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@better-auth/cimd": "1.7.11",
+    "@better-auth/drizzle-adapter": "1.7.11",
+    "@better-auth/mcp": "1.7.11",
+    "@better-auth/oauth-provider": "1.7.11",
+    "@orpc/server": "1.15.7",
+    "@toolstile/database": "workspace:*",
+    "@toolstile/gateway": "workspace:*",
+    "better-auth": "1.7.11",
+    "drizzle-orm": "0.45.4",
+    "nodemailer": "10.1.6",
+    "zod": "4.6.7"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/nodemailer": "8.0.2"
+  }
+}

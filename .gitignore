@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.output/
+.tanstack/
+.env
+.env.*
+!.env.example
+coverage/
+test-results/
+playwright-report/
+*.tgz
+.DS_Store
+
+.browser-account.json
+.release-git.tar.gz
+
+
+# Operator-managed container configuration
+/secrets/
+/deploy/local/
+# Generated Vite+ hook dispatcher
+.vite-hooks/_/

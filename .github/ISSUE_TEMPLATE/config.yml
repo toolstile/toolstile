@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://www.toolstile.com/docs
+    about: Managed service guides for connections, clients, permissions and billing. Self-hosting docs are in this repository's docs folder.
+  - name: Account and billing support
+    url: https://www.toolstile.com/faq
+    about: For questions about your account, workspace or subscription, email support@toolstile.com. Do not post these publicly.
+  - name: Report a security vulnerability
+    url: https://github.com/toolstile/toolstile/blob/main/SECURITY.md
+    about: Report vulnerabilities privately. Do not open a public issue.

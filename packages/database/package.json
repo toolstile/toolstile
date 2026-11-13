@@ -1,0 +1,39 @@
+{
+	"name": "@toolstile/database",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"browser": null,
+			"default": "./src/index.ts"
+		},
+		"./connector-catalog": {
+			"browser": null,
+			"default": "./src/connector-catalog.ts"
+		},
+		"./migrate": {
+			"browser": null,
+			"default": "./src/migrate.ts"
+		},
+		"./transaction": {
+			"browser": null,
+			"default": "./src/transaction.ts"
+		},
+		"./sql": {
+			"browser": null,
+			"default": "./src/sql.ts"
+		},
+		"./pg-columns": {
+			"browser": null,
+			"default": "./src/pg-columns.ts"
+		},
+		"./connection-status": "./src/connection-status.ts"
+	},
+	"dependencies": {
+		"@electric-sql/pglite": "0.5.15",
+		"drizzle-orm": "0.45.4",
+		"pg": "8.23.1"
+	},
+	"license": "Apache-2.0"
+}
