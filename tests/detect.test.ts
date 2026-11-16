@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockInstance,
+	vi,
+} from "vitest";
 import { connectionInput } from "../packages/api/src/contract";
 import {
 	connectionLabel,
@@ -19,6 +29,23 @@ describe("connection detection", () => {
 	afterAll(async () => {
 		await plain.close();
 		await oauth.close();
+	});
+	// Failed probes are expected here. Their warnings carry only a bare reason,
+	// never the address or headers, which may hold credentials.
+	let warn: MockInstance<typeof console.warn>;
+	beforeEach(() => {
+		warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+	});
+	afterEach(() => {
+		try {
+			for (const call of warn.mock.calls)
+				expect(call).toEqual([
+					"MCP connection probe failed",
+					expect.stringMatching(/^[A-Za-z][\w ]*$/),
+				]);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 	it("accepts URL-only input and defaults both settings to auto", () => {
 		expect(

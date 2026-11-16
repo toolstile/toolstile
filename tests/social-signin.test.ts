@@ -1,5 +1,15 @@
 import { createSign, generateKeyPairSync, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockInstance,
+	vi,
+} from "vitest";
 import { createAccountService } from "../apps/web/src/server/accounts";
 import { createAuth, digest, issueToken } from "../packages/auth/src/index";
 import { authSchema } from "../packages/database/src/index";
@@ -119,6 +129,23 @@ describe.skipIf(!process.env.TEST_BASE_URL)(
 				);
 			await accounts.purgeExpired();
 			await storage.close();
+		});
+		// Rejected callbacks are expected here. The auth logger reduces them to a
+		// fixed message, never SQL parameters or provider responses.
+		let error: MockInstance<typeof console.error>;
+		beforeEach(() => {
+			error = vi.spyOn(console, "error").mockImplementation(() => {});
+		});
+		afterEach(() => {
+			try {
+				for (const call of error.mock.calls)
+					expect(call).toEqual([
+						"Authentication operation failed",
+						expect.stringMatching(/^(error|warn)$/),
+					]);
+			} finally {
+				error.mockRestore();
+			}
 		});
 		async function invite(invitedEmail: string | null) {
 			const token = issueToken();
