@@ -7,7 +7,7 @@ import {
 	writeCatalogFile,
 } from "./catalog-sync";
 
-// pnpm catalog:discover [slugs...] [--write]: lists tools into the bundled v1 snapshot's
+// vp run catalog:discover [slugs...] [--write]: lists tools into the bundled v1 snapshot's
 // `toolSnapshot`. The published catalog on www stays the source; this refreshes the fallback.
 const args = process.argv.slice(2);
 const write = args.includes("--write");

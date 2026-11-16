@@ -71,7 +71,7 @@ if (command === "init") {
 	console.log(`Instance initialized in ${directory}`);
 } else if (command === "start") {
 	const entry = join(root, "apps/web/.output/server/index.mjs");
-	if (!existsSync(entry)) throw new Error("Build first with pnpm build");
+	if (!existsSync(entry)) throw new Error("Build first with vp run build");
 	await run("apps/web/scripts/migrate.ts", [], { cwd: join(root, "apps/web") });
 	await run(entry, [], { typescript: false });
 } else if (command === "bootstrap" || command === "operator") {

@@ -91,16 +91,16 @@ try {
 	}
 	// Competing migrators and repeat application exercise the actual file locking/journal.
 	const migrations = await Promise.allSettled([
-		run("pnpm", ["db:migrate"]),
-		run("pnpm", ["db:migrate"]),
+		run("vp", ["run", "db:migrate"]),
+		run("vp", ["run", "db:migrate"]),
 	]);
 	for (const result of migrations)
 		if (result.status === "rejected") throw result.reason;
-	await run("pnpm", ["db:migrate"]);
+	await run("vp", ["run", "db:migrate"]);
 	if (!process.argv.includes("--migrations-only")) {
 		const entry = resolve("apps/web/.output/server/index.mjs");
 		if (!existsSync(entry))
-			throw new Error("Run pnpm build before the Postgres HTTP suite");
+			throw new Error("Run vp run build before the Postgres HTTP suite");
 		server = spawn(process.execPath, [entry], {
 			env: environment,
 			stdio: ["ignore", "ignore", "inherit"],
@@ -123,7 +123,7 @@ try {
 		}
 		console.log(`Disposable Postgres HTTP fixture: ${origin}`);
 		const report = join(directory, "tests.json");
-		await run("pnpm", [
+		await run("vp", [
 			"exec",
 			"vitest",
 			"run",

@@ -1,36 +1,33 @@
 # syntax=docker/dockerfile:1
 FROM node:24.17.0-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS node
 
-FROM node AS base
+# Vite+ builds the application: its digest-pinned image provides vp, which installs the
+# pinned Node.js and the pnpm from packageManager. The image's vp user owns /app.
+FROM ghcr.io/voidzero-dev/vite-plus:1.5.1@sha256:068d824d8d8184c39defc266795d3ade452bfc5266603d25d81aeeedbedf8973 AS base
 # The image has no Git, so the install must not set up the Vite+ commit hooks.
-ENV VP_GIT_HOOKS=0
-WORKDIR /source
-RUN corepack enable && corepack install -g pnpm@11.20.0
-
-FROM base AS fetch
-COPY pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm --dir . fetch
+ENV VP_GIT_HOOKS=0 VP_NODE_VERSION=24.17.0
+WORKDIR /app
 
 # Workspace manifests only, so the install stays cached across source-only changes.
 FROM base AS manifests
-COPY . /tmp/source
-RUN cd /tmp/source && for file in package.json pnpm-lock.yaml pnpm-workspace.yaml packages/*/package.json apps/*/package.json; do \
-      mkdir -p "/source/$(dirname "$file")" && cp "$file" "/source/$file"; done
+COPY --chown=vp:vp . /tmp/source
+RUN cd /tmp/source && for file in .node-version package.json pnpm-lock.yaml pnpm-workspace.yaml packages/*/package.json apps/*/package.json; do \
+      mkdir -p "/app/$(dirname "$file")" && cp "$file" "/app/$file"; done
 
-FROM fetch AS build
-COPY --from=manifests /source ./
-RUN pnpm --dir . install --offline --frozen-lockfile
-COPY . .
-RUN pnpm --dir . build
-RUN pnpm --dir . exec esbuild apps/web/scripts/container-admin.ts --bundle --platform=node --format=esm --target=node24 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile=commands/admin.mjs
+FROM base AS build
+COPY --from=manifests --chown=vp:vp /app ./
+RUN vp install --frozen-lockfile
+COPY --chown=vp:vp . .
+RUN vp run build
+RUN vp exec esbuild apps/web/scripts/container-admin.ts --bundle --platform=node --format=esm --target=node24 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile=commands/admin.mjs
 
 FROM node AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 SERVER_SHUTDOWN_TIMEOUT=20
 WORKDIR /app
 COPY --chown=node:node LICENSE NOTICE ./
-COPY --from=build --chown=node:node /source/apps/web/.output/ .output/
-COPY --from=build --chown=node:node /source/commands/ commands/
-COPY --from=build --chown=node:node /source/apps/web/postgres-migrations/ postgres-migrations/
+COPY --from=build --chown=node:node /app/apps/web/.output/ .output/
+COPY --from=build --chown=node:node /app/commands/ commands/
+COPY --from=build --chown=node:node /app/apps/web/postgres-migrations/ postgres-migrations/
 COPY --chown=node:node --chmod=0555 deploy/container/entrypoint.sh /app/entrypoint.sh
 USER node
 EXPOSE 3000

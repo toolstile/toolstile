@@ -241,7 +241,7 @@ export function recoverLaunch(record, list) {
 		saved.port !== port ||
 		saved.worktree !== record.worktree ||
 		!leader ||
-		!leader.command.includes("vite") ||
+		!devLauncher(leader.command) ||
 		!matches(leader) ||
 		candidates.some((p) => p.pgid !== leader.pgid)
 	)
@@ -342,7 +342,11 @@ async function dev(ctx, record) {
 	const port = requestedPort(process.env.PORT) ?? (await freePort(ctx));
 	const host = process.env.HOST || "127.0.0.1";
 	const probeHost = ["0.0.0.0", "::"].includes(host) ? "127.0.0.1" : host;
-	const origin = developmentOrigin(process.env, port, ctx.config.originFallback);
+	const origin = developmentOrigin(
+		process.env,
+		port,
+		ctx.config.originFallback,
+	);
 	record.port = port;
 	record.launchPort = port;
 	record.launchPid = undefined;
@@ -351,17 +355,8 @@ async function dev(ctx, record) {
 	save(ctx, record);
 	// The server leads its own process group so stop/teardown can signal exactly it.
 	const child = spawn(
-		"pnpm",
-		[
-			"exec",
-			"vp",
-			"dev",
-			"--host",
-			host,
-			"--port",
-			String(port),
-			"--strictPort",
-		],
+		"vp",
+		["dev", "--host", host, "--port", String(port), "--strictPort"],
 		{
 			cwd: join(ctx.dir, ctx.config.appDir),
 			detached: true,
@@ -411,7 +406,7 @@ async function dev(ctx, record) {
 			if (
 				leader &&
 				leader.pgid === leader.pid &&
-				leader.command.includes("vite") &&
+				devLauncher(leader.command) &&
 				leader.command.includes(`--port ${port}`)
 			) {
 				if (previous === leader.fingerprint) {
@@ -718,8 +713,12 @@ function assertRuntime(ctx, record) {
 	else if (record.environment.identity && record.phase !== "tearing-down")
 		throw new Error("owned environment missing; inspect manually");
 }
+// `vp dev` leads the server's process group; launchers recorded before it ran Vite directly.
+function devLauncher(command) {
+	return /(?:^|[\s/])vp dev(?:\s|$)/.test(command) || command.includes("vite");
+}
 function run(ctx, args) {
-	execFileSync("pnpm", args, {
+	execFileSync("vp", args, {
 		cwd: ctx.dir,
 		stdio: "inherit",
 		env: {
@@ -740,7 +739,11 @@ function newRecord(ctx) {
 		common: ctx.common,
 		gitDir: ctx.gitDir,
 		gitIdentity: fileIdentity(ctx.gitDir),
-		server: { kind: STORAGE_KIND, directory: ctx.directory, progress: "pending" },
+		server: {
+			kind: STORAGE_KIND,
+			directory: ctx.directory,
+			progress: "pending",
+		},
 		environment: { path: ctx.envPath },
 		phase: "initializing",
 		createdAt: new Date().toISOString(),
@@ -796,7 +799,7 @@ async function prepare(ctx, record, execute) {
 			save(ctx, record);
 		}
 		assertRuntime(ctx, record);
-		await execute(ctx, ["db:migrate"]);
+		await execute(ctx, ["run", "db:migrate"]);
 		record.setupComplete = true;
 		record.phase = "ready";
 		assertReady(ctx, record);

@@ -25,13 +25,13 @@ Team workspaces and shared accounts are part of the managed service only.
 
 ## Self-host
 
-Requires Node.js 24 and pnpm 11. Local mode runs on embedded PGlite: no external database, container runtime or account is needed.
+Requires [Vite+](https://viteplus.dev) (`vp`), which provides Node.js 24 and pnpm 11. Local mode runs on embedded PGlite: no external database, container runtime or account is needed.
 
 ```sh
 git clone https://github.com/toolstile/toolstile.git
 cd toolstile
-pnpm install --frozen-lockfile
-pnpm build
+vp install --frozen-lockfile
+vp run build
 node scripts/local.mjs init
 node scripts/local.mjs bootstrap you@example.com
 node scripts/local.mjs start

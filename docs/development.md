@@ -1,12 +1,12 @@
 # Development
 
-Use Node.js 24 and the pnpm version in `package.json`. [Vite+](https://viteplus.dev) selects both from `.node-version` and `packageManager` when its `vp env` shims are enabled; any other way of selecting those versions works too. `pnpm install` runs `vp config`, which installs a pre-commit hook that formats staged TypeScript, JavaScript and CSS with `vp fmt` (`vp staged`, configured in `vite.config.ts`); `vp hooks disable` turns it off for one clone and `VP_GIT_HOOKS=0` skips installing it. The [documentation index](README.md) separates contributor references from operator runbooks. For a persistent installation, use [local operation](local-operation.md); development task storage is disposable and has separate keys.
+Install [Vite+](https://viteplus.dev) and use `vp` for every install, script and binary (`vp install`, `vp run <script>`, `vp exec <bin>`). It runs Node.js 24 and the pnpm version in `package.json`, selected from `.node-version` and `packageManager`. Bare `vp build`, `vp test` and `vp check` are Vite+ built-ins, not this repository's scripts. `vp install` runs `vp config`, which installs a pre-commit hook that formats staged TypeScript, JavaScript and CSS with `vp fmt` (`vp staged`, configured in `vite.config.ts`); `vp hooks disable` turns it off for one clone and `VP_GIT_HOOKS=0` skips installing it. The [documentation index](README.md) separates contributor references from operator runbooks. For a persistent installation, use [local operation](local-operation.md); development task storage is disposable and has separate keys.
 
 ## Task lifecycle
 
 Use an owned source branch and worktree; never edit a shared main checkout. Parallel tasks need separate writable checkouts and runtime resources. The runtime scripts manage env files, keys, storage and processes only; they never create or remove source worktrees, merge or start a proxy. Identity derives from the current checkout and canonical Git metadata, never from branch names. There are no worktree hooks: run setup after creating a worktree and teardown before removing it.
 
-Run from the checkout, using Node 24 and pnpm on `PATH`:
+Run from the checkout, with `vp` on `PATH`:
 
 | Event | Command | Result |
 | --- | --- | --- |
@@ -21,9 +21,9 @@ Verify `check` before using a prepared or resumed task, and run and verify teard
 
 Main-checkout operations require the explicit `--main` flag on every command, for example `node scripts/runtime.mjs setup --main` and `node scripts/runtime.mjs check --main`. They use the same resource ownership policy. Existing unowned `apps/web/.env` files are retained and setup refuses to adopt them. Back up and inspect such configuration manually before choosing a new lifecycle-owned setup; no automatic main-runtime migration is performed.
 
-Setup writes `BETTER_AUTH_URL=http://localhost:<task port>`, a stable per-checkout port from `portStart`. `dev` listens on `PORT` and `HOST` when set (otherwise that task port, or the next free one, on `127.0.0.1`) and serves the origin in `BETTER_AUTH_URL` from the invoking shell when set, otherwise `http://localhost:$PORT`. That origin becomes the auth/OAuth origin and Vite's allowed host for the run; the generated dotenv is not rewritten. Behind a local HTTPS proxy, export its URL as `BETTER_AUTH_URL`; plain HTTP is accepted only for `localhost` and loopback hosts. Setup and resume never start a server. The default profile uses the offline bundled catalog and no external provider credentials. Use `pnpm bootstrap you@example.com` with the generated dotenv to create an invitation when needed.
+Setup writes `BETTER_AUTH_URL=http://localhost:<task port>`, a stable per-checkout port from `portStart`. `dev` listens on `PORT` and `HOST` when set (otherwise that task port, or the next free one, on `127.0.0.1`) and serves the origin in `BETTER_AUTH_URL` from the invoking shell when set, otherwise `http://localhost:$PORT`. That origin becomes the auth/OAuth origin and Vite's allowed host for the run; the generated dotenv is not rewritten. Behind a local HTTPS proxy, export its URL as `BETTER_AUTH_URL`; plain HTTP is accepted only for `localhost` and loopback hosts. Setup and resume never start a server. The default profile uses the offline bundled catalog and no external provider credentials. Use `vp run bootstrap you@example.com` with the generated dotenv to create an invitation when needed.
 
-Outside the task lifecycle, `pnpm dev` starts Vite with `apps/web/.env`, honouring `PORT` (default 4310) and `HOST` (default `127.0.0.1`); keep that file's `BETTER_AUTH_URL` equal to the URL you open.
+Outside the task lifecycle, `vp run dev` starts Vite with `apps/web/.env`, honouring `PORT` (default 4310) and `HOST` (default `127.0.0.1`); keep that file's `BETTER_AUTH_URL` equal to the URL you open.
 
 ## Ownership and recovery
 
@@ -35,4 +35,4 @@ The generic helper's adapter contract and read-only audit are in [local environm
 
 ## Validation
 
-Run [the local CI gates](ci.md) before integration, independently of settle/removal. For a leaf source change, use `pnpm exec vitest related <changed-source-files> --run`; empty selections are not validation. Lifecycle regressions run with `pnpm exec vitest run tests/worktree-resources.test.mjs scripts/local-environment.test.mjs`. Full HTTP acceptance owns a disposable production fixture and needs neither a dev server nor provider credentials; see [verification](verification.md). UI changes also follow [design](design.md).
+Run [the local CI gates](ci.md) before integration, independently of settle/removal. For a leaf source change, use `vp exec vitest related <changed-source-files> --run`; empty selections are not validation. Lifecycle regressions run with `vp exec vitest run tests/worktree-resources.test.mjs scripts/local-environment.test.mjs`. Full HTTP acceptance owns a disposable production fixture and needs neither a dev server nor provider credentials; see [verification](verification.md). UI changes also follow [design](design.md).
