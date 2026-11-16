@@ -22,4 +22,4 @@ kubectl kustomize deploy/kubernetes
 
 Container acceptance owns an isolated Compose project and disposable database volume and removes only those resources. It exercises the final image; it does not publish it. Kubernetes live acceptance requires a disposable operator-owned cluster and is recorded separately from rendering. CI does not provision a cluster, deploy or publish packages or images.
 
-The dependency advisory exception for Drizzle Kit's optional esbuild 0.18.20 loader expires 2026-12-01; it is used for transforms, not a development server. Re-review or remove it by that date. Secret findings print redacted rule/path metadata only.
+The dependency audit has no exceptions: any advisory fails it. Drizzle Kit's legacy esbuild-kit loader is pinned to the patched esbuild 0.25.12 through a workspace override. Secret findings print redacted rule/path metadata only.
