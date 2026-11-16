@@ -1,18 +1,18 @@
 # Continuous integration
 
-The pinned Node.js 24.17.0 / pnpm 11.20.0 workflow runs on an ephemeral Blacksmith Ubuntu 24.04 runner (4 vCPU) for pushes to main and pull requests against main. Pull-request runs use the `pull_request` event: read-only token, no secrets, and a newer push to the same pull request cancels the older run. Workflows from outside contributors wait for maintainer approval; each push to main runs on its own. It installs the frozen lockfile, checks dependencies/secrets, lint and types, builds the Node application, then runs the complete disposable PostgreSQL production HTTP suite. Fresh competing migrations and repeated application run before the nonempty suite. Failed, skipped and todo tests reject acceptance. PGlite lifecycle, backup/restore and standalone production-output regressions are part of that suite.
+The workflow sets up Vite+ with `voidzero-dev/setup-vp` (Node.js 24.17.0, pnpm 11.20.0 from `packageManager`) and runs on an ephemeral Blacksmith Ubuntu 24.04 runner (4 vCPU) for pushes to main and pull requests against main. Pull-request runs use the `pull_request` event: read-only token, no secrets, and a newer push to the same pull request cancels the older run. Workflows from outside contributors wait for maintainer approval; each push to main runs on its own. It installs the frozen lockfile, checks dependencies/secrets, lint and types, builds the Node application, then runs the complete disposable PostgreSQL production HTTP suite. Fresh competing migrations and repeated application run before the nonempty suite. Failed, skipped and todo tests reject acceptance. PGlite lifecycle, backup/restore and standalone production-output regressions are part of that suite.
 
 Run locally before integrating runtime changes:
 
 ```sh
-pnpm security:check
-pnpm lint
-pnpm check
-pnpm build
-pnpm test:local
+vp run security:check
+vp run lint
+vp run check
+vp run build
+vp run test:local
 ```
 
-`test:local` runs `scripts/test-postgres.mjs`, which owns a Docker PostgreSQL fixture. No development server or provider credentials are required. Ctrl-C stops the run and still removes the fixture container. A bare `pnpm test` is not a substitute: it skips the database/HTTP suites and ends with an `INCOMPLETE` summary naming the skipped count and this command, while `test:local` fails on any skip. Container packaging also has an explicit local acceptance command:
+`test:local` runs `scripts/test-postgres.mjs`, which owns a Docker PostgreSQL fixture. No development server or provider credentials are required. Ctrl-C stops the run and still removes the fixture container. A bare `vp run test` is not a substitute: it skips the database/HTTP suites and ends with an `INCOMPLETE` summary naming the skipped count and this command, while `test:local` fails on any skip. Container packaging also has an explicit local acceptance command:
 
 ```sh
 docker build -t toolstile:local .

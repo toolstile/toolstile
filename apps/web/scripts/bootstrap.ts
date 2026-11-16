@@ -4,7 +4,7 @@ import { invitations } from "../src/server/schema";
 
 const email = process.argv[2]?.toLowerCase();
 if (!email?.includes("@"))
-	throw new Error("Usage: pnpm bootstrap email@example.com");
+	throw new Error("Usage: vp run bootstrap email@example.com");
 const token = issueToken();
 try {
 	await db

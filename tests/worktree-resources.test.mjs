@@ -87,7 +87,7 @@ const leader = {
 	pid: 100,
 	pgid: 100,
 	fingerprint: "original",
-	command: "node pnpm exec vite --host 127.0.0.1 --port 4711",
+	command: "vp dev --host 127.0.0.1 --port 4711",
 };
 describe("owned process cleanup", () => {
 	it("refuses PID reuse without sending a signal", async () => {
@@ -386,7 +386,7 @@ function lifecycleFixture({ mainOnly = false } = {}) {
 			fail = false;
 			throw new Error("injected installation failure");
 		}
-		if (args[0] === "db:migrate")
+		if (args[0] === "run" && args[1] === "db:migrate")
 			writeFileSync(join(ctx.directory, "data.sqlite"), "fixture database");
 	};
 	const options = {
@@ -422,9 +422,9 @@ describe("provider-neutral lifecycle events", () => {
 		const f = lifecycleFixture();
 		for (const portStart of [1000, 1023, 65400, undefined])
 			for (const command of ["setup", "resume", "dev"])
-				await expect(f.event(command, { ...config, portStart })).rejects.toThrow(
-					"portStart must leave 200 unprivileged ports",
-				);
+				await expect(
+					f.event(command, { ...config, portStart }),
+				).rejects.toThrow("portStart must leave 200 unprivileged ports");
 		expect(existsSync(join(f.checkout, config.envPath))).toBe(false);
 		await f.event("setup");
 		const origin = new URL(f.record().origin);
@@ -456,7 +456,9 @@ describe("provider-neutral lifecycle events", () => {
 		expect(existsSync(join(f.checkout, ".git"))).toBe(true);
 		expect(
 			f.commands.every(
-				(args) => args[0] === "install" || args[0] === "db:migrate",
+				(args) =>
+					args[0] === "install" ||
+					(args[0] === "run" && args[1] === "db:migrate"),
 			),
 		).toBe(true);
 		await f.event("setup");
@@ -671,18 +673,18 @@ it("runs the CLI from checkout CWD with no wt binary or provider inheritance", (
 			execFileSync("which", [program], { encoding: "utf8" }).trim(),
 			join(bin, program),
 		);
-	const pnpm = join(bin, "pnpm");
+	const vp = join(bin, "vp");
 	writeFileSync(
-		pnpm,
+		vp,
 		`#!${process.execPath}
 import {appendFileSync} from 'node:fs';
 import {mkdirSync} from 'node:fs';
 if(process.env.SMTP_PASSWORD || process.env.TEST_DATABASE_URL) throw new Error('inherited provider/test settings');
 appendFileSync('commands.log',JSON.stringify(process.argv.slice(2))+String.fromCharCode(10));
-if(process.argv[2]==='db:migrate') mkdirSync(process.env.DATABASE_URL,{recursive:true});
+if(process.argv[2]==='run'&&process.argv[3]==='db:migrate') mkdirSync(process.env.DATABASE_URL,{recursive:true});
 `,
 	);
-	chmodSync(pnpm, 0o700);
+	chmodSync(vp, 0o700);
 	const env = {
 		...process.env,
 		PATH: bin,

@@ -1,12 +1,12 @@
 # Local PGlite instance
 
-The source checkout uses Node.js 24 (`.node-version` selects the latest installed 24) and pnpm 11.20.0; CI is verified on 24.17.0. PGlite embeds PostgreSQL in the Node process; this runtime needs no Docker, PostgreSQL server, Redis or hosted account. Local mode is tested on macOS arm64. Linux and Windows are not yet verified.
+The source checkout uses [Vite+](https://viteplus.dev) (`vp`) with Node.js 24 (`.node-version` selects the latest installed 24) and pnpm 11.20.0; CI is verified on 24.17.0. PGlite embeds PostgreSQL in the Node process; this runtime needs no Docker, PostgreSQL server, Redis or hosted account. Local mode is tested on macOS arm64. Linux and Windows are not yet verified.
 
 From the repository root:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm build
+vp install --frozen-lockfile
+vp run build
 node scripts/local.mjs init
 node scripts/local.mjs bootstrap you@example.com
 node scripts/local.mjs start

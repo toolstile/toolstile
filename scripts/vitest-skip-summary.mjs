@@ -1,5 +1,5 @@
 // Ends every direct Vitest run with a loud summary when suites were skipped,
-// so a bare `pnpm test` is never mistaken for complete acceptance.
+// so a bare `vp run test` is never mistaken for complete acceptance.
 const FIXTURE_VARIABLES = [
 	"TEST_DATABASE_URL",
 	"TEST_BASE_URL",
@@ -40,7 +40,7 @@ export function skipSummary(testModules, env = process.env, command) {
 }
 
 export default class SkipSummaryReporter {
-	constructor({ command = "pnpm build && pnpm test:local" } = {}) {
+	constructor({ command = "vp run build && vp run test:local" } = {}) {
 		this.command = command;
 	}
 	onTestRunEnd(testModules) {

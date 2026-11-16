@@ -5,7 +5,7 @@ import {
 } from "@toolstile/api/catalog-source";
 import { writeCatalogSnapshot } from "./catalog-v1";
 
-// pnpm catalog:pull [url] [--write]: replaces the bundled snapshot with a published v1 catalog,
+// vp run catalog:pull [url] [--write]: replaces the bundled snapshot with a published v1 catalog,
 // fetched through the same public-HTTPS egress policy the running source uses.
 const args = process.argv.slice(2);
 const urls = args.filter((arg) => !arg.startsWith("--"));

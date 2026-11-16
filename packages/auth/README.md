@@ -37,7 +37,7 @@ Operators can list account administration fields, invite users, suspend accounts
 With Node.js 24.17.0 selected, run the audited emergency procedure from `apps/web`, after verifying the account holder's identity through a trusted channel:
 
 ```sh
-pnpm exec tsx --env-file-if-exists=.env src/server/account-cli.ts emergency-reset USER_ID OPERATOR_ID 'Reason for the verified reset'
+vp exec tsx --env-file-if-exists=.env src/server/account-cli.ts emergency-reset USER_ID OPERATOR_ID 'Reason for the verified reset'
 ```
 
 The command revokes sessions and agent credentials, removes existing sign-in methods and recovery codes, records the operator identity and reason, and prints one recovery code valid for 24 hours. Deliver it only to the verified account holder. Suspended/deleted accounts must first follow their normal administration/recovery process.
@@ -45,7 +45,7 @@ The command revokes sessions and agent credentials, removes existing sign-in met
 An explicit purge scan is also available:
 
 ```sh
-pnpm exec tsx --env-file-if-exists=.env src/server/account-cli.ts purge
+vp exec tsx --env-file-if-exists=.env src/server/account-cli.ts purge
 ```
 
 ## All-agent grants

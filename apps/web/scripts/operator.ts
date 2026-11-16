@@ -5,9 +5,7 @@ import { profiles } from "../src/server/schema";
 
 const email = process.argv[2]?.toLowerCase();
 if (!email)
-	throw new Error(
-		"Usage: pnpm --filter @toolstile/web operator email@example.com",
-	);
+	throw new Error("Usage: vp run -F @toolstile/web operator email@example.com");
 try {
 	const [person] = await db.select().from(user).where(eq(user.email, email));
 	if (!person) throw new Error("Create the invited account first");
