@@ -1,14 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync } from "node:fs";
 
-// Deliberately narrow exception: optional legacy Drizzle Kit loader only. This
-// advisory concerns esbuild's serve API; migrations do not start that server.
-const exception = {
-	id: "GHSA-67mh-4wv8-2f99",
-	package: "esbuild",
-	version: "0.18.20",
-	expires: "2026-12-01T00:00:00Z",
-};
 let failed = false;
 const audit = spawnSync("pnpm", ["audit", "--prod", "--json"], {
 	encoding: "utf8",
@@ -34,29 +26,11 @@ try {
 			!Object.keys(report.advisories).length)
 	)
 		throw new Error("Unavailable advisory report");
-	for (const advisory of Object.values(report.advisories)) {
-		const exempt =
-			advisory.github_advisory_id === exception.id &&
-			advisory.module_name === exception.package &&
-			Date.now() < Date.parse(exception.expires) &&
-			advisory.findings?.length > 0 &&
-			advisory.findings.every(
-				(finding) =>
-					finding.optional === true &&
-					finding.version === exception.version &&
-					finding.paths?.length > 0 &&
-					finding.paths.every(
-						(path) =>
-							path.includes("drizzle-kit") &&
-							path.includes("@esbuild-kit/core-utils"),
-					),
-			);
-		if (!exempt) {
-			console.error(
-				"Unaccepted dependency advisory; inspect the registry report privately",
-			);
-			failed = true;
-		}
+	if (Object.keys(report.advisories).length) {
+		console.error(
+			"Unaccepted dependency advisory; inspect the registry report privately",
+		);
+		failed = true;
 	}
 	if (audit.status !== 0 && !Object.keys(report.advisories).length)
 		throw new Error("Audit failed");

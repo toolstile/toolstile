@@ -19,3 +19,4 @@ minimumReleaseAgeExclude:
 overrides:
   vite: "npm:@voidzero-dev/vite-plus-core@1.5.1"
   'seroval@<1.6.11': 1.6.11
+  '@esbuild-kit/core-utils>esbuild': 0.25.12
