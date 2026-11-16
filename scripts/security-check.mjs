@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync } from "node:fs";
 
 let failed = false;
-const audit = spawnSync("pnpm", ["audit", "--prod", "--json"], {
+const audit = spawnSync("vp", ["pm", "audit", "--production", "--json"], {
 	encoding: "utf8",
 	maxBuffer: 16 * 1024 * 1024,
 	timeout: 120_000,
