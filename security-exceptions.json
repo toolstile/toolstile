@@ -1,0 +1,18 @@
+{
+	"dependencies": [
+		{
+			"advisory": "GHSA-fc5q-39xc-vjpf",
+			"package": "picomatch",
+			"version": "4.0.7",
+			"pathSuffix": [
+				">@tanstack/start-plugin-core>picomatch",
+				">fdir>picomatch",
+				">tinyglobby>picomatch",
+				">unplugin>picomatch",
+				">vitest>picomatch"
+			],
+			"expires": "2026-12-15",
+			"reason": "The ReDoS needs attacker-controlled glob patterns. picomatch is reached only through build and test tooling (the TanStack Start build plugin and router generator through tinyglobby and fdir, unplugin, Vitest). No source imports it, and neither the production server output (apps/web/.output) nor the bundled admin command contains it. No patched release exists for picomatch <= 4.0.7: upgrade once one ships, and re-review if a runtime path appears."
+		}
+	]
+}

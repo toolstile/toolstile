@@ -1,7 +1,23 @@
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync } from "node:fs";
+import { unacceptedAdvisories } from "./dependency-exceptions.mjs";
 
 let failed = false;
+// Reviewed, expiring advisory exceptions; an invalid one accepts nothing and fails the check.
+let exceptions = [];
+try {
+	exceptions = JSON.parse(
+		readFileSync(
+			new URL("../security-exceptions.json", import.meta.url),
+			"utf8",
+		),
+	).dependencies;
+	unacceptedAdvisories({}, exceptions);
+} catch (error) {
+	console.error(`Invalid security-exceptions.json: ${error.message}`);
+	exceptions = [];
+	failed = true;
+}
 const audit = spawnSync("vp", ["pm", "audit", "--production", "--json"], {
 	encoding: "utf8",
 	maxBuffer: 16 * 1024 * 1024,
@@ -26,7 +42,7 @@ try {
 			!Object.keys(report.advisories).length)
 	)
 		throw new Error("Unavailable advisory report");
-	if (Object.keys(report.advisories).length) {
+	if (unacceptedAdvisories(report.advisories, exceptions).length) {
 		console.error(
 			"Unaccepted dependency advisory; inspect the registry report privately",
 		);
