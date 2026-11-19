@@ -460,6 +460,23 @@ describe("guided setup waiting for the first call", () => {
 		expect(document.activeElement?.textContent).toMatch(/^Finish/);
 		container.remove();
 	});
+	it("leaves focus on the page when it was not on the dock", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const api = quietApi();
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(verified, api)} />),
+		);
+		(document.activeElement as HTMLElement | null)?.blur();
+		expect(document.activeElement).toBe(document.body);
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(called, api)} />),
+		);
+		expect(skipButton(container)).toBeNull();
+		expect(document.activeElement).toBe(document.body);
+		container.remove();
+	});
 	it("polls for the first call, then refreshes progress and the dashboard", async () => {
 		vi.useFakeTimers();
 		let serverCall: typeof firstCall | null = null;

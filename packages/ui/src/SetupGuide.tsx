@@ -236,6 +236,14 @@ export function SetupGuide({
 	const stepHeading = useRef<HTMLHeadingElement>(null);
 	/** The dock's main action: Finish once setup is complete. */
 	const dockAction = useRef<HTMLButtonElement>(null);
+	/** Whether the dock's Skip held focus as it was removed; React detaches refs before removal. */
+	const dockSkipHadFocus = useRef(false);
+	const dockSkipRef = (node: HTMLButtonElement | null) => {
+		if (!node) return;
+		return () => {
+			dockSkipHadFocus.current = document.activeElement === node;
+		};
+	};
 	const { step, client, connectionId, agentId } = state;
 	const verified = state.completed.verify;
 	const position =
@@ -293,11 +301,14 @@ export function SetupGuide({
 			complete &&
 			!wasComplete.current &&
 			document.activeElement === document.body
-		)
-			// The heading exists only with Details open; docked, Finish takes focus.
-			(stepHeading.current ?? dockAction.current)?.focus({
-				preventScroll: true,
-			});
+		) {
+			// The heading exists only with Details open; docked, Finish takes the dock's Skip focus.
+			if (stepHeading.current)
+				stepHeading.current.focus({ preventScroll: true });
+			else if (dockSkipHadFocus.current)
+				dockAction.current?.focus({ preventScroll: true });
+		}
+		dockSkipHadFocus.current = false;
 		wasComplete.current = complete;
 	}, [complete]);
 	// the step, collapse and dialog change which panel and content are measured.
@@ -1254,6 +1265,7 @@ export function SetupGuide({
 						</span>
 						{showSkip ? (
 							<button
+								ref={dockSkipRef}
 								type="button"
 								aria-label="Skip setup for now"
 								title="Skip setup for now"
