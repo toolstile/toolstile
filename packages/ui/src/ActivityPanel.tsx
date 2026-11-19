@@ -5,7 +5,7 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import type { ManagementClient } from "@toolstile/api/client";
 import type { ActivityOutcomeFilter, Snapshot } from "@toolstile/api/contract";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { controls } from "./Control.styles";
 import { dashboardStyles as styles } from "./Dashboard.styles";
 import { DebugPanel } from "./DebugPanel";
@@ -21,6 +21,10 @@ export interface ActivityView {
 	outcome?: ActivityOutcomeFilter;
 	query?: string;
 	page?: number;
+	/** `all` also lists requests the dashboard made, such as checks; absent lists agents' only. */
+	source?: "all";
+	/** The request to show: its page opens and its row is marked and scrolled into view. */
+	request?: string;
 }
 const ACTIVITY_PAGE_SIZE = 25;
 /** Requests at or above this duration get a small amber dot. */
@@ -151,13 +155,21 @@ function ActivitySummary({ activity }: { activity: Snapshot["activity"] }) {
 	);
 }
 
+/** The source filter: agents' own requests, or those plus the dashboard's checks. */
+const sources = [
+	{ id: "agents", label: "Agents" },
+	{ id: "all", label: "All" },
+] as const;
+
 /**
- * Activity page: recent requests with outcome filter, search and pages, and debug capture in
- * its own tab. The view lives in the URL.
+ * Activity page: recent requests with source and outcome filters, search and pages, and debug
+ * capture in its own tab. The view lives in the URL. Requests the dashboard made, such as
+ * connection checks, are hidden unless the view asks for all sources.
  */
 export function ActivityPanel({
 	data,
 	api,
+	pending = false,
 	view,
 	onViewChange,
 	debug,
@@ -165,6 +177,8 @@ export function ActivityPanel({
 }: {
 	data: Snapshot;
 	api: ManagementClient;
+	/** The host is still loading this scope: `data` and `api` may belong to the previous one. */
+	pending?: boolean;
 	view: ActivityView;
 	/** `replace` is set while typing a search so each keystroke does not add history. */
 	onViewChange(view: ActivityView, replace?: boolean): void;
@@ -176,7 +190,80 @@ export function ActivityPanel({
 	const query = view.query ?? "";
 	const needle = query.trim().toLowerCase();
 	const filter = filters.find((item) => item.id === outcome) ?? filters[0];
-	const matching = data.activity.filter(
+	// While the scope loads, the rows and the client can still belong to another workspace, so
+	// the link is not matched, read, highlighted or scrolled to until it settles.
+	const request = pending ? undefined : view.request;
+	const loaded =
+		!!request && data.activity.some((entry) => entry.id === request);
+	// Only recent requests are loaded; a linked older one is read on its own, once per client
+	// and id. The host replaces the client when the workspace changes, so an answer read for an
+	// earlier workspace is neither shown nor reused. Retry starts the read again.
+	const [linked, setLinked] = useState<{
+		api: ManagementClient;
+		id: string;
+		entry: Snapshot["activity"][number] | null;
+		failed: boolean;
+	}>();
+	const [attempt, setAttempt] = useState(0);
+	const lookup = useRef<
+		{ api: ManagementClient; id: string; attempt: number } | undefined
+	>(undefined);
+	useEffect(() => {
+		const id = request;
+		if (!id || loaded) return;
+		const last = lookup.current;
+		if (last && last.api === api && last.id === id && last.attempt === attempt)
+			return;
+		const mine = { api, id, attempt };
+		lookup.current = mine;
+		const settle = (
+			entry: Snapshot["activity"][number] | null,
+			failed: boolean,
+		) => {
+			if (lookup.current === mine) setLinked({ api, id, entry, failed });
+		};
+		api.activityRequest({ id }).then(
+			(entry) => settle(entry, false),
+			() => settle(null, true),
+		);
+	}, [api, request, loaded, attempt]);
+	const fetched =
+		!loaded && linked && linked.id === request && linked.api === api
+			? linked
+			: undefined;
+	const activity = fetched?.entry
+		? withEntry(data.activity, fetched.entry)
+		: data.activity;
+	const requested = request
+		? activity.find((entry) => entry.id === request)
+		: undefined;
+	// The lookup answered that the caller cannot see the request, or it no longer exists.
+	const missing = !!fetched && !fetched.entry;
+	const linkNote = !missing ? null : fetched?.failed ? (
+		<span role="status" {...stylex.props(local.linkRetry)}>
+			The linked request could not be loaded.
+			<button
+				type="button"
+				{...stylex.props(local.textButton)}
+				onClick={() => setAttempt((value) => value + 1)}
+			>
+				Retry
+			</button>
+		</span>
+	) : (
+		<span role="status">The linked request is no longer available.</span>
+	);
+	// A linked request the dashboard made is shown with every source.
+	const source =
+		view.source === "all" || requested?.origin === "dashboard"
+			? "all"
+			: "agents";
+	const agentActivity = activity.filter(
+		(entry) => entry.origin !== "dashboard",
+	);
+	const sourced = source === "all" ? activity : agentActivity;
+	const hidden = activity.length - sourced.length;
+	const matching = sourced.filter(
 		(entry) =>
 			filter.matches(entry.outcome) &&
 			(!needle ||
@@ -185,12 +272,38 @@ export function ActivityPanel({
 				)),
 	);
 	const pages = Math.max(1, Math.ceil(matching.length / ACTIVITY_PAGE_SIZE));
-	const page = Math.min(view.page ?? 1, pages);
+	const requestedIndex = requested
+		? matching.findIndex((entry) => entry.id === requested.id)
+		: -1;
+	const page = Math.min(
+		view.page ??
+			(requestedIndex >= 0
+				? Math.floor(requestedIndex / ACTIVITY_PAGE_SIZE) + 1
+				: 1),
+		pages,
+	);
 	const rows = matching.slice(
 		(page - 1) * ACTIVITY_PAGE_SIZE,
 		page * ACTIVITY_PAGE_SIZE,
 	);
-	const listView = { outcome: view.outcome, query: view.query };
+	// Every change below leaves out `request`, so changing the view lets go of a linked request.
+	const sourceView = source === "all" ? ("all" as const) : undefined;
+	const listView = {
+		outcome: view.outcome,
+		query: view.query,
+		source: sourceView,
+	};
+	const showAll = () =>
+		onViewChange({ outcome: view.outcome, query: view.query, source: "all" });
+	// Bring a linked request into view once per request, when its row first renders.
+	const requestedRow = useRef<HTMLTableRowElement>(null);
+	const scrolledTo = useRef<string | undefined>(undefined);
+	useEffect(() => {
+		if (!request || scrolledTo.current === request) return;
+		if (!requestedRow.current) return;
+		scrolledTo.current = request;
+		requestedRow.current.scrollIntoView({ block: "center" });
+	});
 	return (
 		<div {...stylex.props(local.root)}>
 			{debug ? (
@@ -206,6 +319,10 @@ export function ActivityPanel({
 					}
 				/>
 			) : null}
+			{/* With no rows to frame, the linked-request note stands above the empty state. */}
+			{tab === "requests" && !sourced.length && missing ? (
+				<p {...stylex.props(local.notice)}>{linkNote}</p>
+			) : null}
 			{tab === "debug" && debug ? (
 				<DebugPanel
 					api={api}
@@ -214,15 +331,57 @@ export function ActivityPanel({
 					selectedPayloadId={debug.selectedPayloadId}
 					onSelectPayload={debug.onSelectPayload}
 				/>
-			) : data.activity.length ? (
+			) : sourced.length ? (
 				<>
-					<ActivitySummary activity={data.activity} />
+					{/* The summary describes the recent requests, not an older linked one. */}
+					<ActivitySummary
+						activity={
+							fetched?.entry
+								? sourced.filter((entry) => entry.id !== fetched.entry?.id)
+								: sourced
+						}
+					/>
 					<section aria-label="Requests" {...stylex.props(local.panel)}>
 						<div {...stylex.props(local.toolbar)}>
+							<nav aria-label="Source" {...stylex.props(local.filters)}>
+								{sources.map((item) => {
+									const selected = item.id === source;
+									const total =
+										item.id === "all" ? activity.length : agentActivity.length;
+									return (
+										<button
+											key={item.id}
+											type="button"
+											aria-current={selected ? "page" : undefined}
+											{...stylex.props(
+												local.segment,
+												selected && local.segmentSelected,
+											)}
+											onClick={() =>
+												onViewChange({
+													outcome: view.outcome,
+													query: view.query,
+													source: item.id === "all" ? "all" : undefined,
+												})
+											}
+										>
+											{item.label}
+											<span
+												{...stylex.props(
+													local.segmentCount,
+													selected && local.segmentCountSelected,
+												)}
+											>
+												{total}
+											</span>
+										</button>
+									);
+								})}
+							</nav>
 							<nav aria-label="Outcome" {...stylex.props(local.filters)}>
 								{filters.map((item) => {
 									const selected = item.id === outcome;
-									const total = data.activity.filter((entry) =>
+									const total = sourced.filter((entry) =>
 										item.matches(entry.outcome),
 									).length;
 									return (
@@ -238,6 +397,7 @@ export function ActivityPanel({
 												onViewChange({
 													outcome: item.id === "all" ? undefined : item.id,
 													query: view.query,
+													source: sourceView,
 												})
 											}
 										>
@@ -256,7 +416,7 @@ export function ActivityPanel({
 							</nav>
 							<label {...stylex.props(local.search)}>
 								<span {...stylex.props(layout.visuallyHidden)}>
-									Search by agent, MCP connection or operation
+									Search by agent, MCP connection or request
 								</span>
 								<MagnifyingGlassIcon
 									size={16}
@@ -267,13 +427,14 @@ export function ActivityPanel({
 									type="search"
 									value={query}
 									maxLength={100}
-									placeholder="Search agent, MCP or operation"
+									placeholder="Search agent, MCP or request"
 									{...stylex.props(controls.input, local.searchInput)}
 									onChange={(event) =>
 										onViewChange(
 											{
 												outcome: view.outcome,
 												query: event.target.value || undefined,
+												source: sourceView,
 											},
 											true,
 										)
@@ -306,7 +467,7 @@ export function ActivityPanel({
 												scope="col"
 												{...stylex.props(styles.tableHeader, local.cell)}
 											>
-												Operation
+												Request
 											</th>
 											<th
 												scope="col"
@@ -337,6 +498,7 @@ export function ActivityPanel({
 											const newGroup =
 												index === 0 ||
 												group !== dayLabel(rows[index - 1].createdAt);
+											const current = e.id === requested?.id;
 											return (
 												<Fragment key={e.id}>
 													{newGroup ? (
@@ -350,7 +512,11 @@ export function ActivityPanel({
 															</th>
 														</tr>
 													) : null}
-													<tr>
+													<tr
+														ref={current ? requestedRow : undefined}
+														aria-current={current ? "true" : undefined}
+														{...stylex.props(current && local.rowCurrent)}
+													>
 														<td
 															{...stylex.props(
 																styles.tableCell,
@@ -460,15 +626,50 @@ export function ActivityPanel({
 								/>
 							</div>
 						) : null}
-						{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
-							<p {...stylex.props(local.footnote)}>
-								{matching.length === data.activity.length
-									? `Showing all ${data.activity.length.toLocaleString()} recent ${data.activity.length === 1 ? "request" : "requests"}`
-									: `Showing ${matching.length.toLocaleString()} of ${data.activity.length.toLocaleString()} recent requests`}
-							</p>
+						{(matching.length && matching.length <= ACTIVITY_PAGE_SIZE) ||
+						hidden ||
+						missing ? (
+							<div {...stylex.props(local.footnote)}>
+								{linkNote}
+								{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
+									<span>
+										{matching.length === sourced.length
+											? `Showing all ${sourced.length.toLocaleString()} recent ${sourced.length === 1 ? "request" : "requests"}`
+											: `Showing ${matching.length.toLocaleString()} of ${sourced.length.toLocaleString()} recent requests`}
+									</span>
+								) : null}
+								{hidden ? (
+									<span {...stylex.props(local.hidden)}>
+										{`${hidden.toLocaleString()} dashboard ${hidden === 1 ? "check" : "checks"} hidden`}
+										<button
+											type="button"
+											{...stylex.props(local.textButton)}
+											onClick={showAll}
+										>
+											Show all
+										</button>
+									</span>
+								) : null}
+							</div>
 						) : null}
 					</section>
 				</>
+			) : activity.length ? (
+				<EmptyState
+					icon={ClockCounterClockwiseIcon}
+					title="No agent has made a request yet"
+					action={
+						<button
+							{...stylex.props(controls.button)}
+							type="button"
+							onClick={showAll}
+						>
+							Show all
+						</button>
+					}
+				>
+					Requests the dashboard made, such as connection checks, are hidden.
+				</EmptyState>
 			) : (
 				<EmptyState
 					icon={ClockCounterClockwiseIcon}
@@ -487,6 +688,18 @@ export function ActivityPanel({
 			)}
 		</div>
 	);
+}
+
+/** The loaded requests with one more, kept newest first. */
+function withEntry(
+	activity: Snapshot["activity"],
+	entry: Snapshot["activity"][number],
+) {
+	const at = Date.parse(entry.createdAt);
+	const index = activity.findIndex((item) => Date.parse(item.createdAt) < at);
+	return index < 0
+		? [...activity, entry]
+		: [...activity.slice(0, index), entry, ...activity.slice(index)];
 }
 
 const mobile = "@media (max-width: 640px)";
@@ -615,6 +828,35 @@ const local = stylex.create({
 	// Slow requests (10 s or more) read in the warning colour, with no extra mark.
 	durationSlow: { color: colors.warning },
 	agent: { fontWeight: 500 },
+	// A request opened from a link: the selected-row tint the other record lists use.
+	rowCurrent: { backgroundColor: colors.actionTint },
+	// The hidden-rows note sits at the footer's end, apart from the count.
+	linkRetry: { display: "inline-flex", alignItems: "center", gap: space.s2 },
+	hidden: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: space.s2,
+		marginInlineStart: "auto",
+	},
+	textButton: {
+		minHeight: { default: 24, "@media (pointer: coarse)": 44 },
+		padding: 0,
+		borderWidth: 0,
+		backgroundColor: "transparent",
+		color: colors.action,
+		fontFamily: geometry.fontSans,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
+		fontWeight: 500,
+		textDecoration: {
+			default: "none",
+			":hover": "underline",
+			":focus-visible": "underline",
+		},
+		textUnderlineOffset: 3,
+		cursor: "pointer",
+		outline: "none",
+	},
 	colTime: { width: 104 },
 	colOutcome: { width: 168 },
 	colDuration: { width: 104 },
@@ -622,6 +864,8 @@ const local = stylex.create({
 	footnote: {
 		display: "flex",
 		alignItems: "center",
+		flexWrap: "wrap",
+		columnGap: space.s3,
 		margin: 0,
 		minHeight: 40,
 		paddingInline: { default: space.s4, [mobile]: space.s3 },
@@ -706,6 +950,14 @@ const local = stylex.create({
 		color: colors.muted,
 		fontSize: text.body,
 		lineHeight: text.bodyLeading,
+		textAlign: "center",
+	},
+	// The linked-request note above an empty state, in the footer's quiet type.
+	notice: {
+		margin: 0,
+		color: colors.muted,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
 		textAlign: "center",
 	},
 	pagination: {

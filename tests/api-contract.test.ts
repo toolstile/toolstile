@@ -11,6 +11,7 @@ import {
 	createCommonRouter,
 	type Services,
 } from "@toolstile/api/server";
+import { activityOrigin } from "../packages/database/src/activity-origin";
 import { describe, expect, it, vi } from "vitest";
 import {
 	createORPCClient,
@@ -69,6 +70,21 @@ const services = {
 		activity: [],
 		...extra,
 	}),
+	activityRequest: async (_actor: unknown, id: string) =>
+		id === "request"
+			? {
+					id,
+					agent: "Agent",
+					connection: "Connection",
+					origin: "agent" as const,
+					method: "tools/call",
+					target: null,
+					outcome: "forwarded",
+					durationMs: 1,
+					createdAt: "2026-11-19T00:00:00.000Z",
+					...extra,
+				}
+			: null,
 	addConnection: async () => ({
 		id: "connection",
 		label: "Connection",
@@ -201,6 +217,22 @@ describe("management response boundaries", () => {
 			result: {},
 			truncated: false,
 		});
+		expect(await client.activityRequest({ id: "request" })).toEqual({
+			id: "request",
+			agent: "Agent",
+			connection: "Connection",
+			origin: "agent",
+			method: "tools/call",
+			target: null,
+			outcome: "forwarded",
+			durationMs: 1,
+			createdAt: "2026-11-19T00:00:00.000Z",
+		});
+		expect(await client.activityRequest({ id: "other" })).toBeNull();
+		await expect(client.activityRequest({ id: "" })).rejects.toThrow();
+		await expect(
+			client.activityRequest({ id: "x".repeat(201) }),
+		).rejects.toThrow();
 		expect(await client.agentCatalog(catalog)).toEqual({ tools: [] });
 		expect(
 			await client.testTool({ ...catalog, name: "tool", arguments: {} }),
@@ -250,5 +282,17 @@ describe("management response boundaries", () => {
 		);
 		expect(result.matched).toBe(false);
 		expect(result.response).toBeUndefined();
+	});
+});
+describe("activity origin", () => {
+	it("keeps stored origins and derives legacy ones from the dashboard's labels", () => {
+		expect(activityOrigin("agent", "Dashboard")).toBe("agent");
+		expect(activityOrigin("dashboard", "Claude Code")).toBe("dashboard");
+		expect(activityOrigin(null, "Dashboard")).toBe("dashboard");
+		expect(activityOrigin(null, "Dashboard test / Claude Code")).toBe(
+			"dashboard",
+		);
+		for (const label of ["Claude Code", "Dashboard agent", "Dashboard test"])
+			expect(activityOrigin(null, label), label).toBe("agent");
 	});
 });

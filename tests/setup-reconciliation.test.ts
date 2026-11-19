@@ -34,36 +34,62 @@ function fixture() {
 		activity: [],
 	};
 	const catalog = vi.fn(async () => ({ tools: [] }));
-	const runtime = vi.fn(
-		(_actor: Actor, id: string): Runtime => ({
-			authenticate: async () => {},
-			connections: async () =>
-				id === "configured"
-					? [
-							{
-								id: "configured",
-								label: "Configured",
-								url: "https://example.test/mcp",
-								transport: "http",
-								headers: {},
-								identityKey: "one",
-								rules: [rules],
-							},
-						]
-					: [],
-			admit: async () => {},
-			record: async () => {},
-			validateDestination: async () => {},
-		}),
+	const calls: {
+		agentId: string;
+		connectionId: string;
+		id: string;
+		target: string | null;
+		createdAt: Date;
+		failed: boolean;
+	}[] = [];
+	const firstCall = vi.fn(
+		async (_actor: Actor, input: { agentId: string; connectionId: string }) => {
+			const call = calls.find(
+				(entry) =>
+					entry.agentId === input.agentId &&
+					entry.connectionId === input.connectionId,
+			);
+			return (
+				call && {
+					id: call.id,
+					target: call.target,
+					createdAt: call.createdAt,
+					failed: call.failed,
+				}
+			);
+		},
 	);
+	let writes = 0;
+	const runtime = vi.fn((_actor: Actor, id: string): Runtime => ({
+		authenticate: async () => {},
+		connections: async () =>
+			id === "configured"
+				? [
+						{
+							id: "configured",
+							label: "Configured",
+							url: "https://example.test/mcp",
+							transport: "http",
+							headers: {},
+							identityKey: "one",
+							rules: [rules],
+						},
+					]
+				: [],
+		admit: async () => {},
+		record: async () => {},
+		validateDestination: async () => {},
+	}));
 	const service = createSetupService({
 		read: async () => saved,
 		persist: async (_actor, row) => {
+			writes++;
 			saved = row;
 		},
 		isConnectionReady: (connection) => connection.status === "ready",
 		services: { snapshot: async () => data, agentCatalog: catalog },
 		runtime,
+		firstCall,
 	});
 	return {
 		service,
@@ -71,6 +97,9 @@ function fixture() {
 		rules,
 		catalog,
 		runtime,
+		calls,
+		firstCall,
+		writes: () => writes,
 		setRow: (row: SetupRow) => {
 			saved = row;
 		},
@@ -153,8 +182,8 @@ describe("setup reconciles access configured outside the guide", () => {
 		}
 		expect(runtime).not.toHaveBeenCalled();
 	});
-	it("requires successful catalog verification before persisting completion", async () => {
-		const { service, catalog } = fixture();
+	it("requires successful catalog verification and a first call before persisting completion", async () => {
+		const { service, catalog, calls } = fixture();
 		const state = await service.status(actor);
 		const input = {
 			connectionId: state.connectionId ?? "missing",
@@ -175,6 +204,19 @@ describe("setup reconciles access configured outside the guide", () => {
 		});
 		expect((await service.status(actor)).completed.verify).toBe(false);
 		await service.verify(actor, input);
+		await expect(service.save(actor, input)).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message:
+				"Complete the connection, agent, access, verification and first-call steps first.",
+		});
+		calls.push({
+			agentId: "configured",
+			connectionId: "configured",
+			id: "call",
+			target: "read",
+			createdAt: new Date("2026-01-01T00:00:00Z"),
+			failed: false,
+		});
 		expect((await service.save(actor, input)).status).toBe("finished");
 		expect((await service.status(actor)).status).toBe("finished");
 	});
@@ -188,5 +230,69 @@ describe("setup reconciles access configured outside the guide", () => {
 			throw new Error("database unavailable");
 		});
 		await expect(service.status(actor)).rejects.toThrow("database unavailable");
+	});
+	it("derives the first call from activity, independent of verification, and never persists it", async () => {
+		const { service, calls, firstCall, setRow, writes } = fixture();
+		const empty = await service.status(actor);
+		expect(empty.completed.call).toBe(false);
+		expect(empty.firstCall).toBeNull();
+		// Another agent's call, or one on another connection, is not this selection's.
+		calls.push(
+			{
+				agentId: "first",
+				connectionId: "configured",
+				id: "other-agent",
+				target: "read",
+				createdAt: new Date("2026-01-01T00:00:00Z"),
+				failed: false,
+			},
+			{
+				agentId: "configured",
+				connectionId: "first",
+				id: "other-connection",
+				target: "read",
+				createdAt: new Date("2026-01-01T00:00:00Z"),
+				failed: false,
+			},
+		);
+		expect((await service.status(actor)).completed.call).toBe(false);
+		calls.push({
+			agentId: "configured",
+			connectionId: "configured",
+			id: "call",
+			target: "read",
+			createdAt: new Date("2026-01-02T00:00:00Z"),
+			failed: false,
+		});
+		const state = await service.status(actor);
+		expect(state).toMatchObject({
+			completed: { access: true, verify: false, call: true },
+			firstCall: {
+				id: "call",
+				target: "read",
+				createdAt: "2026-01-02T00:00:00.000Z",
+			},
+		});
+		// The poll reads only the stored selection and activity.
+		expect(await service.firstCall(actor)).toEqual({ firstCall: null });
+		setRow({ ...progress, connectionId: "configured", agentId: "configured" });
+		const before = writes();
+		expect(await service.firstCall(actor)).toEqual({
+			firstCall: state.firstCall,
+		});
+		expect(writes()).toBe(before);
+		// Skipped setup reads no activity.
+		setRow({
+			...progress,
+			status: "skipped",
+			connectionId: "configured",
+			agentId: "configured",
+		});
+		firstCall.mockClear();
+		expect(await service.status(actor)).toMatchObject({
+			completed: { call: false },
+			firstCall: null,
+		});
+		expect(firstCall).not.toHaveBeenCalled();
 	});
 });

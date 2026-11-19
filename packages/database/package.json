@@ -28,7 +28,8 @@
 			"browser": null,
 			"default": "./src/pg-columns.ts"
 		},
-		"./connection-status": "./src/connection-status.ts"
+		"./connection-status": "./src/connection-status.ts",
+		"./activity-origin": "./src/activity-origin.ts"
 	},
 	"dependencies": {
 		"@electric-sql/pglite": "0.5.15",

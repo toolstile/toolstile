@@ -130,6 +130,8 @@ const accessSearch = (search?: AccessSearch) => ({
 	connection: undefined,
 	tab: undefined,
 	outcome: undefined,
+	origin: undefined,
+	request: undefined,
 	debugPayloadId: undefined,
 });
 
@@ -246,7 +248,7 @@ export function DashboardApp({
 	useEffect(() => {
 		if (session.status === "authenticated") retryLoad();
 		return () => loadRequest.current?.abort();
-	// oxlint-disable-next-line react-hooks/exhaustive-deps -- Reload on authenticated user changes, not each render of retryLoad.
+		// oxlint-disable-next-line react-hooks/exhaustive-deps -- Reload on authenticated user changes, not each render of retryLoad.
 	}, [session.status, session.userId]);
 	// Waiting approvals and tool changes, shown on their sidebar items; reloaded on navigation.
 	const navigationCounts = useNavigationCounts(
@@ -400,6 +402,11 @@ export function DashboardApp({
 						api: instanceApi,
 						endpoint,
 						onState: setupProgress.onState,
+						onViewCall: (request: string) =>
+							navigate({
+								to: "/app/activity",
+								search: { ...accessSearch(), request },
+							}),
 					}
 				}
 				activityView={{
@@ -407,8 +414,10 @@ export function DashboardApp({
 					outcome: search.outcome,
 					query: search.query,
 					page: search.page,
+					source: search.origin,
+					request: search.request,
 				}}
-				onActivityViewChange={(view, replace) =>
+				onActivityViewChange={({ source, ...view }, replace) =>
 					navigate({
 						to: "/app/activity",
 						replace,
@@ -416,6 +425,7 @@ export function DashboardApp({
 						search: {
 							...accessSearch(),
 							...view,
+							origin: source,
 							debugPayloadId:
 								view.tab === "debug" ? search.debugPayloadId : undefined,
 						},

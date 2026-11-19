@@ -34,6 +34,18 @@ export type SetupDependencies = {
 	): boolean;
 	services: Pick<Services, "snapshot" | "agentCatalog">;
 	runtime(actor: Actor, agentId: string): Runtime;
+	/**
+	 * The activity row in the actor's scope that the agent sent to the MCP endpoint (`origin`
+	 * agent) as a `tools/call` on the connection: the earliest `forwarded` one, else the earliest
+	 * `upstream_error` one (`failed`: the provider returned an error or did not answer).
+	 */
+	firstCall(
+		actor: Actor,
+		input: { agentId: string; connectionId: string },
+	): Promise<
+		| { id: string; target: string | null; createdAt: Date; failed: boolean }
+		| undefined
+	>;
 };
 
 function usable(agent: {
@@ -64,6 +76,21 @@ function hasAccess(rules: Rules[]) {
 
 /** Inject live authorization and gateway services; this module never imports the runtime. */
 export function createSetupService(deps: SetupDependencies) {
+	/** Derived from activity on every read and never persisted with the setup row. */
+	async function firstCall(
+		actor: Actor,
+		input: { agentId: string; connectionId: string },
+	): Promise<SetupState["firstCall"]> {
+		const call = await deps.firstCall(actor, input);
+		return call
+			? {
+					id: call.id,
+					target: call.target,
+					createdAt: call.createdAt.toISOString(),
+					failed: call.failed,
+				}
+			: null;
+	}
 	async function read(actor: Actor): Promise<SetupRow> {
 		const row = await deps.read(actor);
 		return (
@@ -124,6 +151,15 @@ export function createSetupService(deps: SetupDependencies) {
 			}
 		}
 		const verified = !!key && key === row.verificationKey && !!row.verifiedAt;
+		// Independent of verification: a call made before verifying still counts. Skipped
+		// setup reads no activity.
+		const call =
+			row.status !== "skipped" && connected && agent
+				? await firstCall(actor, {
+						agentId: agent.id,
+						connectionId: connection.id,
+					})
+				: null;
 		const state: SetupState = {
 			status: row.status,
 			step: row.step,
@@ -135,9 +171,11 @@ export function createSetupService(deps: SetupDependencies) {
 				agent: !!agent,
 				access,
 				verify: verified,
+				call: !!call,
 			},
 			verifiedAt:
 				verified && row.verifiedAt ? row.verifiedAt.toISOString() : null,
+			firstCall: call,
 		};
 		return { state, key };
 	}
@@ -204,6 +242,22 @@ export function createSetupService(deps: SetupDependencies) {
 			const data = await deps.services.snapshot(actor);
 			return { agentIds: data.agents.filter(usable).map(({ id }) => id) };
 		},
+		/**
+		 * The stored selection's first call, without deriving the other steps. The guide polls
+		 * this while it waits for the agent's first call; it never writes.
+		 */
+		async firstCall(actor: Actor) {
+			const row = await deps.read(actor);
+			return {
+				firstCall:
+					row?.agentId && row.connectionId
+						? await firstCall(actor, {
+								agentId: row.agentId,
+								connectionId: row.connectionId,
+							})
+						: null,
+			};
+		},
 		async save(actor: Actor, input: z.infer<typeof update>) {
 			const previous = await read(actor);
 			const row: SetupRow = {
@@ -235,7 +289,7 @@ export function createSetupService(deps: SetupDependencies) {
 			)
 				throw new ORPCError("BAD_REQUEST", {
 					message:
-						"Complete the connection, agent, access and verification steps first.",
+						"Complete the connection, agent, access, verification and first-call steps first.",
 				});
 			await deps.persist(actor, row);
 			return state;
@@ -289,6 +343,9 @@ export function createSetupRouter(deps: SetupDependencies) {
 		),
 		setupAgents: procedure.handler(({ context }) =>
 			service.agents(context.actor),
+		),
+		setupFirstCall: procedure.handler(({ context }) =>
+			service.firstCall(context.actor),
 		),
 		saveSetup: procedure
 			.input(update)

@@ -1,4 +1,7 @@
-/** Persisted setup selections contain identifiers and preferences, never credentials. */
+/**
+ * Persisted setup selections contain identifiers and preferences, never credentials. The
+ * first-call step is never persisted: it is derived from activity on every read.
+ */
 export const setupSteps = ["connect", "agent", "access", "verify"] as const;
 /** Agent apps with connect steps; persisted as text, so new ids need no migration. */
 export const setupClients = [
@@ -37,13 +40,25 @@ export type SetupState = SetupSelection & {
 		agent: boolean;
 		access: boolean;
 		verify: boolean;
+		/** The selected agent made a forwarded `tools/call` on the selected connection. */
+		call: boolean;
 	};
 	verifiedAt: string | null;
+	/** The earliest retained forwarded agent `tools/call` for the selected agent and connection. */
+	/** `failed`: the call reached the gateway but the provider returned an error or no answer. */
+	firstCall: {
+		id: string;
+		target: string | null;
+		createdAt: string;
+		failed: boolean;
+	} | null;
 };
 export type SetupApi = {
 	setupStatus(): Promise<SetupState>;
 	/** The agents setup can select; cheaper than `setupStatus` for polling. */
 	setupAgents(): Promise<{ agentIds: string[] }>;
+	/** The selection's first call; reads activity only, for polling while setup waits for it. */
+	setupFirstCall(): Promise<{ firstCall: SetupState["firstCall"] }>;
 	saveSetup(
 		input: SetupSelection & {
 			step: SetupStep;
