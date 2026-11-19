@@ -11,11 +11,12 @@ export function ActivityPage({
 	/** The host's own explanation, in muted text above the requests. */
 	note?: ReactNode;
 }) {
-	const { data, api, activity, onNavigate } = useDashboard();
+	const { data, api, activity, onNavigate, pagePending } = useDashboard();
 	const panel = (
 		<ActivityPanel
 			data={data}
 			api={api}
+			pending={pagePending}
 			view={activity?.view ?? {}}
 			onViewChange={(view, replace) => activity?.onViewChange(view, replace)}
 			debug={activity?.debug}

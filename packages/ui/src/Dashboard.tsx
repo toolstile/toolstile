@@ -909,6 +909,7 @@ export function Dashboard({
 		loadStarters,
 		reportAccessDirty,
 		connectionAccessSummary,
+		pagePending: Boolean(pending),
 		activity,
 	};
 	const page = (

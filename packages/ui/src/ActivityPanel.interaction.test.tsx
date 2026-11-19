@@ -192,6 +192,31 @@ describe("activity panel linked request lookup", () => {
 		expect(container.textContent).not.toContain("tool_first");
 		expect(container.textContent).toContain(note);
 	});
+	it("waits for the scope to load before reading a linked request", async () => {
+		const lookup = vi.fn(async () => entry("old", 600));
+		const render = (pending: boolean) =>
+			act(async () =>
+				root?.render(
+					<ActivityPanel
+						data={snapshot([entry("a1", 1)])}
+						api={api}
+						pending={pending}
+						view={{ request: "old" }}
+						onViewChange={() => undefined}
+						onNavigate={() => undefined}
+					/>,
+				),
+			);
+		const api = { activityRequest: lookup } as unknown as ManagementClient;
+		container = document.createElement("div");
+		root = createRoot(container);
+		await render(true);
+		expect(lookup).not.toHaveBeenCalled();
+		expect(container.textContent).not.toContain(note);
+		await render(false);
+		expect(lookup).toHaveBeenCalledTimes(1);
+		expect(current()).toContain("tool_old");
+	});
 	it("does not look up a loaded request or when none is linked", async () => {
 		const lookup = vi.fn(async () => null);
 		const rerender = await mount([entry("a1", 1)], {}, lookup);

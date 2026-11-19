@@ -88,6 +88,8 @@ export interface DashboardContextValue {
 	loadStarters?: StarterLoader;
 	reportAccessDirty(dirty: boolean): void;
 	connectionAccessSummary(connectionId: string, short?: boolean): string;
+	/** The host is still loading the page's scope; `data` and `api` may belong to the last one. */
+	pagePending: boolean;
 	activity?: {
 		view: ActivityView;
 		onViewChange(view: ActivityView, replace?: boolean): void;

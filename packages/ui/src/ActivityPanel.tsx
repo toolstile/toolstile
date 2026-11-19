@@ -169,6 +169,7 @@ const sources = [
 export function ActivityPanel({
 	data,
 	api,
+	pending = false,
 	view,
 	onViewChange,
 	debug,
@@ -176,6 +177,8 @@ export function ActivityPanel({
 }: {
 	data: Snapshot;
 	api: ManagementClient;
+	/** The host is still loading this scope: `data` and `api` may belong to the previous one. */
+	pending?: boolean;
 	view: ActivityView;
 	/** `replace` is set while typing a search so each keystroke does not add history. */
 	onViewChange(view: ActivityView, replace?: boolean): void;
@@ -204,7 +207,8 @@ export function ActivityPanel({
 	>(undefined);
 	useEffect(() => {
 		const id = view.request;
-		if (!id || loaded) return;
+		// Not while the scope loads: the client could still read another workspace.
+		if (!id || loaded || pending) return;
 		const last = lookup.current;
 		if (last && last.api === api && last.id === id && last.attempt === attempt)
 			return;
@@ -220,9 +224,13 @@ export function ActivityPanel({
 			(entry) => settle(entry, false),
 			() => settle(null, true),
 		);
-	}, [api, view.request, loaded, attempt]);
+	}, [api, view.request, loaded, attempt, pending]);
 	const fetched =
-		!loaded && linked && linked.id === view.request && linked.api === api
+		!loaded &&
+		!pending &&
+		linked &&
+		linked.id === view.request &&
+		linked.api === api
 			? linked
 			: undefined;
 	const activity = fetched?.entry
