@@ -79,7 +79,8 @@ function usable(agent: Agent) {
  * (signed in, where it needs sign-in), step 1 moves on to step 2, unless the user went back to
  * step 1. A token created from step 2 selects its new agent and moves on to access; an agent that
  * signs in during step 2 is selected and moves on to access; a single agent that already existed
- * is selected. Finishing is never automatic: the user confirms it.
+ * is selected. In the later steps a missing selection is filled only when there is a single
+ * candidate. Finishing is never automatic: the user confirms it.
  */
 export function automaticSelection({
 	step,
@@ -134,7 +135,15 @@ export function automaticSelection({
 			? { setupConnectionId: choice.id }
 			: undefined;
 	}
-	if (step !== "agent") return undefined;
+	if (step !== "agent") {
+		// A selection that was removed after its step (the agent was revoked and connected again,
+		// say) leaves the access step with nothing to give access to: take the only candidate.
+		const only: SetupNavigation = {};
+		if (!connectionId && connections.length === 1)
+			only.setupConnectionId = connections[0]?.id;
+		if (!agentId && agentIds.length === 1) only.setupAgentId = agentIds[0];
+		return only.setupConnectionId || only.setupAgentId ? only : undefined;
+	}
 	const created = tokenBaseline
 		? agentIds.find((id) => !tokenBaseline.has(id))
 		: undefined;

@@ -179,6 +179,27 @@ describe("automatic setup selections", () => {
 			}),
 		).toEqual({ setupAgentId: "a" });
 	});
+	it("fills a missing selection in the access step from the only candidate", () => {
+		const base = { step: "access" as const, connections: [connection] };
+		expect(
+			automaticSelection({ ...base, agentIds: ["a"], connectionId: "c1" }),
+		).toEqual({ setupAgentId: "a" });
+		expect(automaticSelection({ ...base, agentIds: ["a"] })).toEqual({
+			setupConnectionId: "c1",
+			setupAgentId: "a",
+		});
+		expect(
+			automaticSelection({ ...base, agentIds: ["a", "b"], connectionId: "c1" }),
+		).toBeUndefined();
+		expect(
+			automaticSelection({
+				...base,
+				agentIds: ["a"],
+				connectionId: "c1",
+				agentId: "a",
+			}),
+		).toBeUndefined();
+	});
 	it("moves on from step 1 once the selected connection is ready", () => {
 		const reachable = { id: "c1", status: "reachable" };
 		const base = {
