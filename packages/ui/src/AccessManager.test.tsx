@@ -273,13 +273,13 @@ describe("access grid tool cells", () => {
 			rules({ block: { tools: ["drop"], resources: [], prompts: [] } }),
 		);
 		expect(some).toContain("Allow all 2 Mail tools for Writer</button>");
-		expect(some).toContain("1 blocked for every agent stays blocked.");
+		expect(some).toContain("1 set under Everyone stays as set there.");
 		const all = withEveryone(
 			rules({
 				block: { tools: ["read", "send", "drop"], resources: [], prompts: [] },
 			}),
 		);
-		expect(all).toContain("Every tool here is blocked for every agent.");
+		expect(all).toContain("Every tool here is set under Everyone.");
 		expect(all).not.toContain("Mail tools for Writer</button>");
 	});
 

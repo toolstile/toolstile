@@ -330,8 +330,8 @@ type FirstGrantState = {
 	/** Of those, allowed or requiring approval in the draft. */
 	allowed: number;
 	approval: number;
-	/** Of those, blocked for every agent: the button cannot allow them. */
-	blocked: number;
+	/** Of those, blocked or requiring approval through Everyone: the button leaves them. */
+	locked: number;
 	/** The draft turns on “Everything”, here or through Everyone. */
 	full: boolean;
 	/** This agent has unsaved edits. */
@@ -1090,8 +1090,8 @@ function ServerAccess({
 			total: offered.length,
 			allowed,
 			approval,
-			blocked: offered.filter(
-				(name) => toolCell(rules, name, everyoneRules).everyoneLock === "block",
+			locked: offered.filter(
+				(name) => toolCell(rules, name, everyoneRules).everyoneLock,
 			).length,
 			full: rules.full || !!everyoneRules?.full,
 			// Only this agent's own draft: an unrelated Everyone edit keeps the first action.
@@ -1768,41 +1768,42 @@ function AgentAccessView({
 					{loading && !catalogPending ? (
 						<span aria-hidden="true" {...stylex.props(styles.refreshBar)} />
 					) : null}
-					{/* First, so the one action a new agent needs sits above the editor's controls. */}
-					{firstGrant && column.agent ? (
-						<FirstGrant
-							grant={firstGrant}
-							server={server.label}
-							agent={column.label}
-							busy={busy}
-							anchorId={`access-agent-${column.agent.id}`}
-						/>
-					) : null}
+					{/* One focus target ahead of both the band and the bulk row, whichever arrive, so
+					    Tab from it reaches the first action. */}
 					<div
-						id={
-							column.agent && !firstGrant
-								? `access-agent-${column.agent.id}`
-								: undefined
-						}
+						id={column.agent ? `access-agent-${column.agent.id}` : undefined}
 						tabIndex={-1}
-						{...stylex.props(styles.agentHead)}
+						{...stylex.props(styles.agentTop)}
 					>
-						{/* The breadcrumb above names the agent; this row holds its bulk controls. */}
-						<BulkActions
-							items={columnMenu}
-							disabled={busy}
-							context={column.agent ? column.label : "Everyone"}
-							shown={
-								needle ? `${visible.length} of ${rows.length} shown` : undefined
-							}
-						/>
+						{/* First, so the one action a new agent needs sits above the editor's controls. */}
+						{firstGrant && column.agent ? (
+							<FirstGrant
+								grant={firstGrant}
+								server={server.label}
+								agent={column.label}
+								busy={busy}
+							/>
+						) : null}
+						<div {...stylex.props(styles.agentHead)}>
+							{/* The breadcrumb above names the agent; this row holds its bulk controls. */}
+							<BulkActions
+								items={columnMenu}
+								disabled={busy}
+								context={column.agent ? column.label : "Everyone"}
+								shown={
+									needle
+										? `${visible.length} of ${rows.length} shown`
+										: undefined
+								}
+							/>
+						</div>
+						{kind === "tools" ? (
+							<p {...stylex.props(styles.modeHelp)}>
+								Allow runs without review. Ask requires approval for each call.{" "}
+								{unsetText}
+							</p>
+						) : null}
 					</div>
-					{kind === "tools" ? (
-						<p {...stylex.props(styles.modeHelp)}>
-							Allow runs without review. Ask requires approval for each call.{" "}
-							{unsetText}
-						</p>
-					) : null}
 					{(fullOn ? blocks : starters.length > 0) ? (
 						// One quiet line under the agent. With “Everything” on, the rule that blocks
 						// still win; otherwise the reviewed starters (they only narrow a partial grant).
@@ -2466,9 +2467,7 @@ function FirstGrant({
 	server,
 	agent,
 	busy,
-	anchorId,
 }: {
-	anchorId: string;
 	grant: FirstGrantState;
 	server: string;
 	agent: string;
@@ -2483,9 +2482,9 @@ function FirstGrant({
 			statusRef.current?.focus({ preventScroll: true });
 		}
 	}, [grant.staged]);
-	const { total, allowed, approval, blocked } = grant;
-	// What the button can stage: a tool blocked for every agent stays blocked.
-	const open = total - blocked;
+	const { total, allowed, approval, locked } = grant;
+	// What the button can set to Allowed: a tool Everyone blocks or holds for approval stays.
+	const open = total - locked;
 	const tools = `${server} ${total === 1 ? "tool" : "tools"}`;
 	const set = allowed + approval;
 	const require = `${approval} ${approval === 1 ? "requires" : "require"} approval`;
@@ -2504,14 +2503,11 @@ function FirstGrant({
 		open === 1
 			? `Allow the 1 ${server} tool for ${agent}`
 			: `Allow all ${open} ${server} tools for ${agent}`;
-	const blockedNote = blocked
-		? ` ${blocked} blocked for every agent ${blocked === 1 ? "stays" : "stay"} blocked.`
+	const lockedNote = locked
+		? ` ${locked} set under Everyone ${locked === 1 ? "stays" : "stay"} as set there.`
 		: "";
 	return (
 		<section
-			// The agent's focus target while the band shows, so Tab reaches its button next.
-			id={anchorId}
-			tabIndex={-1}
 			aria-label={`Access for ${agent} on ${server}`}
 			{...stylex.props(styles.firstGrant)}
 		>
@@ -2529,8 +2525,8 @@ function FirstGrant({
 					{grant.staged
 						? "Save to apply it, or adjust tool by tool below first."
 						: open
-							? `Allow its ${plural(open, "tool")} now, or choose tool by tool below.${blockedNote}`
-							: "Every tool here is blocked for every agent. Unblock one under Everyone first."}
+							? `Allow its ${plural(open, "tool")} now, or choose tool by tool below.${lockedNote}`
+							: "Every tool here is set under Everyone. Change it there first."}
 					{grant.full
 						? null
 						: ` Tools ${server} adds later stay off until you allow them.`}
@@ -3043,6 +3039,14 @@ const styles = stylex.create({
 		color: colors.muted,
 		fontSize: text.meta,
 		lineHeight: text.metaLeading,
+	},
+	// The band, bulk row and help line: one group, spaced like the column around it.
+	agentTop: {
+		display: "flex",
+		flexDirection: "column",
+		gap: space.s3,
+		minWidth: 0,
+		outline: "none",
 	},
 	agentHead: {
 		display: "flex",
@@ -3709,7 +3713,6 @@ const styles = stylex.create({
 		paddingInline: space.s4,
 		borderRadius: geometry.corner,
 		backgroundColor: colors.band,
-		outline: "none",
 	},
 	firstGrantText: {
 		display: "grid",
