@@ -193,6 +193,8 @@ describe("connect an agent", () => {
 		expect(document.body.textContent).not.toContain("Popular");
 		expect(toggle.textContent).toBe("Show fewer");
 		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+		// Focus moves into the revealed list, which opens above the toggle.
+		expect(document.activeElement?.textContent).toBe("Claude Code");
 
 		act(() => toggle.click());
 		expect(document.body.textContent).not.toContain("Cline");
@@ -238,7 +240,7 @@ describe("connect an agent", () => {
 		);
 		expect(heading()).toBe("Claude Code is set up on Work laptop");
 		expect(document.body.textContent).toContain(
-			"Restart Claude Code if it is running. It has not made a request yet",
+			"Restart Claude Code if it is running. It can't use any MCP connections",
 		);
 
 		act(() => button("Connect another agent").click());

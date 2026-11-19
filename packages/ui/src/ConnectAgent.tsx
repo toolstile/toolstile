@@ -119,6 +119,7 @@ export function ConnectAgentDialog({
 	// autofocus handles the first view.
 	const heading = useRef<HTMLHeadingElement>(null);
 	const search = useRef<HTMLInputElement>(null);
+	const appList = useRef<HTMLDivElement>(null);
 	const view = arrived ? "arrived" : app ? app.id : "pick";
 	const shownView = useRef(view);
 	useEffect(() => {
@@ -126,6 +127,12 @@ export function ConnectAgentDialog({
 		shownView.current = view;
 		(view === "pick" ? search.current : heading.current)?.focus();
 	}, [view]);
+
+	// The full list opens above its toggle, so focus moves to its first app; otherwise the next
+	// Tab would skip every app just revealed.
+	useEffect(() => {
+		if (showAll) appList.current?.querySelector("button")?.focus();
+	}, [showAll]);
 
 	const choose = (next: AgentApp | null) => {
 		setApp(next);
@@ -168,7 +175,7 @@ export function ConnectAgentDialog({
 							</h3>
 							<p {...stylex.props(styles.muted)}>
 								{showHost
-									? `Restart ${arrived.label} if it is running. It has not made a request yet, and it can't use any MCP connections until you give it access.`
+									? `Restart ${arrived.label} if it is running. It can't use any MCP connections until you give it access.`
 									: "It can't use any MCP connections until you give it access."}
 							</p>
 						</div>
@@ -245,7 +252,7 @@ export function ConnectAgentDialog({
 						/>
 					</div>
 					{sections.some((section) => section.items.length) ? (
-						<div id={`${id}-apps`} {...stylex.props(styles.body)}>
+						<div ref={appList} id={`${id}-apps`} {...stylex.props(styles.body)}>
 							{sections.map(({ id: groupId, label, items }) =>
 								items.length ? (
 									<section
