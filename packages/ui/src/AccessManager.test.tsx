@@ -242,6 +242,58 @@ describe("access grid tool cells", () => {
 		expect(inherited).toContain("Unset tools follow Everyone.");
 	});
 
+	const withEveryone = (everyoneRules: Rules, own?: Rules) =>
+		renderToStaticMarkup(
+			<AccessManager
+				data={{
+					...noAccess,
+					grants: own
+						? [{ agentId: "a1", connectionId: "c1", rules: own }]
+						: [],
+					allAgentGrants: [{ connectionId: "c1", rules: everyoneRules }],
+				}}
+				api={{} as never}
+				everyone={{} as never}
+				view={{ server: "c1", agent: "a1" }}
+				onViewChange={() => undefined}
+				catalogs={{ c1: ready }}
+				loadCatalog={() => undefined}
+				busy={false}
+				save={async () => true}
+				reload={async () => undefined}
+				renderLink={({ children }) => children}
+				onDirtyChange={() => undefined}
+				onSignIn={() => undefined}
+				onConnectAgent={() => undefined}
+				connectionAccessSummary={() => ""}
+			/>,
+		);
+	it("offers only the tools Everyone does not block, and none when all are blocked", () => {
+		const some = withEveryone(
+			rules({ block: { tools: ["drop"], resources: [], prompts: [] } }),
+		);
+		expect(some).toContain("Allow all 2 Mail tools for Writer</button>");
+		expect(some).toContain("1 blocked for every agent stays blocked.");
+		const all = withEveryone(
+			rules({
+				block: { tools: ["read", "send", "drop"], resources: [], prompts: [] },
+			}),
+		);
+		expect(all).toContain("Every tool here is blocked for every agent.");
+		expect(all).not.toContain("Mail tools for Writer</button>");
+	});
+
+	it("does not call saved resource access no access", () => {
+		expect(
+			withEveryone(
+				rules({}),
+				rules({
+					allow: { tools: [], resources: ["file:///a"], prompts: [] },
+				}),
+			),
+		).not.toContain("can’t use Mail yet");
+	});
+
 	it("never offers the first grant to Everyone or under a filter", () => {
 		const everyoneView = renderToStaticMarkup(
 			<AccessManager
@@ -287,7 +339,7 @@ describe("access grid tool cells", () => {
 
 	it("explains the three states in one line, true for inherited access", () => {
 		expect(render()).toContain(
-			"Allow runs without review. Ask waits for your approval. Unset tools are not allowed.",
+			"Allow runs without review. Ask requires approval for each call. Unset tools are not allowed.",
 		);
 		const full: Snapshot = {
 			...data,
@@ -296,7 +348,7 @@ describe("access grid tool cells", () => {
 			],
 		};
 		expect(render(ready, full)).toContain(
-			"Unset tools are allowed through “Everything”.",
+			"“Everything” allows unset tools unless Everyone blocks them or requires approval.",
 		);
 	});
 

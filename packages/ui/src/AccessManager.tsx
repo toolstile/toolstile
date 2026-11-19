@@ -45,6 +45,7 @@ import {
 } from "react";
 import { AgentMark } from "./AgentMark";
 import {
+	accessSummary,
 	type Capability,
 	type CapabilityRow,
 	capabilityKinds,
@@ -329,9 +330,11 @@ type FirstGrantState = {
 	/** Of those, allowed or requiring approval in the draft. */
 	allowed: number;
 	approval: number;
+	/** Of those, blocked for every agent: the button cannot allow them. */
+	blocked: number;
 	/** The draft turns on “Everything”, here or through Everyone. */
 	full: boolean;
-	/** This agent (or Everyone) has unsaved edits. */
+	/** This agent has unsaved edits. */
 	staged: boolean;
 	/** Stages Allow for every tool listed now; saves nothing. */
 	allowAll(): void;
@@ -1071,12 +1074,9 @@ function ServerAccess({
 			return null;
 		const savedOwn = saved(column.id);
 		const savedEveryone = inheritedFrom(column, saved);
-		if (savedOwn.full || savedEveryone?.full) return null;
-		const reachesSaved = rows.some((row) => {
-			const effect = toolCell(savedOwn, row.name, savedEveryone).effect;
-			return effect === "allowed" || effect === "approval";
-		});
-		if (reachesSaved) return null;
+		// Any saved tool, resource or prompt access, own or through Everyone, ends the empty state.
+		if (accessSummary(savedEveryone ? [savedOwn, savedEveryone] : [savedOwn]))
+			return null;
 		const rules = current(column.id);
 		const everyoneRules = inheritedFrom(column);
 		let allowed = 0;
@@ -1090,8 +1090,12 @@ function ServerAccess({
 			total: offered.length,
 			allowed,
 			approval,
+			blocked: offered.filter(
+				(name) => toolCell(rules, name, everyoneRules).everyoneLock === "block",
+			).length,
 			full: rules.full || !!everyoneRules?.full,
-			staged: column.id in draft || (!!everyone && everyoneColumn in draft),
+			// Only this agent's own draft: an unrelated Everyone edit keeps the first action.
+			staged: column.id in draft,
 			allowAll: () =>
 				edit(column.id, (next) =>
 					setRows(next, offered, true, inheritedFrom(column)),
@@ -1694,7 +1698,7 @@ function AgentAccessView({
 	const unsetText = !column.agent
 		? "Unset tools are left to each agent."
 		: fullOn
-			? "Unset tools are allowed through “Everything”."
+			? "“Everything” allows unset tools unless Everyone blocks them or requires approval."
 			: everyoneGrants
 				? "Unset tools follow Everyone."
 				: "Unset tools are not allowed.";
@@ -1771,10 +1775,15 @@ function AgentAccessView({
 							server={server.label}
 							agent={column.label}
 							busy={busy}
+							anchorId={`access-agent-${column.agent.id}`}
 						/>
 					) : null}
 					<div
-						id={column.agent ? `access-agent-${column.agent.id}` : undefined}
+						id={
+							column.agent && !firstGrant
+								? `access-agent-${column.agent.id}`
+								: undefined
+						}
 						tabIndex={-1}
 						{...stylex.props(styles.agentHead)}
 					>
@@ -1790,7 +1799,7 @@ function AgentAccessView({
 					</div>
 					{kind === "tools" ? (
 						<p {...stylex.props(styles.modeHelp)}>
-							Allow runs without review. Ask waits for your approval.{" "}
+							Allow runs without review. Ask requires approval for each call.{" "}
 							{unsetText}
 						</p>
 					) : null}
@@ -2457,7 +2466,9 @@ function FirstGrant({
 	server,
 	agent,
 	busy,
+	anchorId,
 }: {
+	anchorId: string;
 	grant: FirstGrantState;
 	server: string;
 	agent: string;
@@ -2472,7 +2483,9 @@ function FirstGrant({
 			statusRef.current?.focus({ preventScroll: true });
 		}
 	}, [grant.staged]);
-	const { total, allowed, approval } = grant;
+	const { total, allowed, approval, blocked } = grant;
+	// What the button can stage: a tool blocked for every agent stays blocked.
+	const open = total - blocked;
 	const tools = `${server} ${total === 1 ? "tool" : "tools"}`;
 	const set = allowed + approval;
 	const require = `${approval} ${approval === 1 ? "requires" : "require"} approval`;
@@ -2488,11 +2501,17 @@ function FirstGrant({
 						? `${approval} of ${total} ${tools} set to Requires approval for ${agent}. Not saved yet.`
 						: `${set} of ${total} ${tools} set for ${agent}: ${allowed} allowed, ${require}. Not saved yet.`;
 	const action =
-		total === 1
+		open === 1
 			? `Allow the 1 ${server} tool for ${agent}`
-			: `Allow all ${total} ${server} tools for ${agent}`;
+			: `Allow all ${open} ${server} tools for ${agent}`;
+	const blockedNote = blocked
+		? ` ${blocked} blocked for every agent ${blocked === 1 ? "stays" : "stay"} blocked.`
+		: "";
 	return (
 		<section
+			// The agent's focus target while the band shows, so Tab reaches its button next.
+			id={anchorId}
+			tabIndex={-1}
 			aria-label={`Access for ${agent} on ${server}`}
 			{...stylex.props(styles.firstGrant)}
 		>
@@ -2509,7 +2528,9 @@ function FirstGrant({
 					{/* Both states end with the same sentence, so the band keeps its height on staging. */}
 					{grant.staged
 						? "Save to apply it, or adjust tool by tool below first."
-						: `Allow its ${plural(total, "tool")} now, or choose tool by tool below.`}
+						: open
+							? `Allow its ${plural(open, "tool")} now, or choose tool by tool below.${blockedNote}`
+							: "Every tool here is blocked for every agent. Unblock one under Everyone first."}
 					{grant.full
 						? null
 						: ` Tools ${server} adds later stay off until you allow them.`}
@@ -2536,7 +2557,7 @@ function FirstGrant({
 						Discard
 					</button>
 				</span>
-			) : (
+			) : !open ? null : (
 				<button
 					type="button"
 					disabled={busy}
@@ -3688,6 +3709,7 @@ const styles = stylex.create({
 		paddingInline: space.s4,
 		borderRadius: geometry.corner,
 		backgroundColor: colors.band,
+		outline: "none",
 	},
 	firstGrantText: {
 		display: "grid",
