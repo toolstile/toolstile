@@ -19,13 +19,26 @@ import { type ComputerSetup, ConnectAgentDialog } from "./ConnectAgent";
 	globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-type Agent = { id: string; label: string; revoked: boolean };
+type Agent = {
+	id: string;
+	label: string;
+	deviceId?: string;
+	revoked: boolean;
+};
+type Device = { id: string; label: string; revoked: boolean };
 const existing: Agent = { id: "a1", label: "Codex", revoked: false };
+const hostSteps = vi.fn((app: { id: string; label: string }) => [
+	{
+		text: `Set up ${app.label}.`,
+		code: `setup-tool --enable ${app.id}`,
+		codeKind: "command",
+	},
+]);
 const computerSetup: ComputerSetup = {
 	label: "Setup tool",
-	description: "Sets up every agent on this computer.",
+	description: "Sets up agents on this computer.",
 	clients: ["claude-code"],
-	steps: [{ text: "Run the tool.", code: "setup-tool", codeKind: "command" }],
+	steps: hostSteps,
 };
 
 let root: Root | undefined;
@@ -34,27 +47,36 @@ afterEach(() => {
 	act(() => root?.unmount());
 	container?.remove();
 	root = undefined;
+	hostSteps.mockClear();
 	vi.useRealTimers();
 });
 
+type Setter<T> = { current: (value: T) => void };
+const setter = <T,>(): Setter<T> => ({ current: () => undefined });
+
 function render(options: {
-	reload(): Promise<void>;
-	grant(agentId: string): void;
-	agents: { current: Agent[] };
-	setAgents: { current: (agents: Agent[]) => void };
+	reload?(): Promise<void>;
+	grant?(agentId: string): void;
+	agents?: Agent[];
+	devices?: Device[];
+	setAgents?: Setter<Agent[]>;
+	setDevices?: Setter<Device[]>;
 }) {
 	function Host() {
-		const [agents, setAgents] = useState(options.agents.current);
-		options.setAgents.current = setAgents;
+		const [agents, setAgents] = useState(options.agents ?? []);
+		const [devices, setDevices] = useState(options.devices ?? []);
+		if (options.setAgents) options.setAgents.current = setAgents;
+		if (options.setDevices) options.setDevices.current = setDevices;
 		return (
 			<ConnectAgentDialog
 				endpoint="https://gateway.example/mcp"
 				agents={agents}
-				reload={options.reload}
+				devices={devices}
+				reload={options.reload ?? (async () => undefined)}
 				computerSetup={computerSetup}
 				onClose={() => undefined}
 				onCreateToken={() => undefined}
-				onGrantAccess={options.grant}
+				onGrantAccess={options.grant ?? (() => undefined)}
 			/>
 		);
 	}
@@ -72,42 +94,55 @@ const button = (label: string) => {
 	return match;
 };
 
+function type(value: string) {
+	const search = document.querySelector<HTMLInputElement>(
+		'input[type="search"]',
+	);
+	if (!search) throw new Error("No search field");
+	act(() => {
+		Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		)?.set?.call(search, value);
+		search.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+}
+
+const heading = () => document.querySelector("h3")?.textContent ?? "";
+
 describe("connect an agent", () => {
 	it("filters apps, offers the host's setup first and waits for the new agent", async () => {
 		vi.useFakeTimers();
 		const reload = vi.fn(async () => undefined);
 		const grant = vi.fn();
-		const setAgents: { current: (agents: Agent[]) => void } = {
-			current: () => undefined,
-		};
-		render({
-			reload,
-			grant,
-			agents: { current: [existing] },
-			setAgents,
-		});
-		const search = document.querySelector<HTMLInputElement>(
-			'input[type="search"]',
-		);
-		if (!search) throw new Error("No search field");
-		act(() => {
-			const setter = Object.getOwnPropertyDescriptor(
-				HTMLInputElement.prototype,
-				"value",
-			)?.set;
-			setter?.call(search, "claude");
-			search.dispatchEvent(new Event("input", { bubbles: true }));
-		});
+		const setAgents = setter<Agent[]>();
+		render({ reload, grant, agents: [existing], setAgents });
+		type("claude");
 		expect(document.body.textContent).toContain("Claude Desktop");
 		expect(document.body.textContent).not.toContain("Cursor");
+		expect(document.body.textContent).not.toContain("Show all");
 
 		act(() => button("Claude Code").click());
 		expect(document.body.textContent).toContain("Setup tool (recommended)");
-		expect(document.body.textContent).toContain("setup-tool");
+		expect(hostSteps).toHaveBeenCalledWith({
+			id: "claude-code",
+			label: "Claude Code",
+		});
+		expect(document.body.textContent).toContain(
+			"setup-tool --enable claude-code",
+		);
+		expect(document.body.textContent).toContain(
+			"Waiting for this computer to sign in.",
+		);
 		act(() => button("Claude Code only").click());
 		expect(document.body.textContent).toContain(
 			"claude mcp add --transport http toolstile 'https://gateway.example/mcp'",
 		);
+		expect(document.body.textContent).not.toContain("&device_name=");
+		const ssh = button("Connecting from a machine you reach over SSH?");
+		expect(ssh.getAttribute("aria-expanded")).toBe("false");
+		act(() => ssh.click());
+		expect(ssh.getAttribute("aria-expanded")).toBe("true");
 		expect(document.body.textContent).toContain("&device_name=");
 		expect(document.body.textContent).toContain(
 			"Waiting for Claude Code to sign in",
@@ -124,7 +159,8 @@ describe("connect an agent", () => {
 				{ id: "a2", label: "Claude Code", revoked: false },
 			]),
 		);
-		expect(document.body.textContent).toContain("Claude Code is connected");
+		expect(heading()).toBe("Claude Code signed in");
+		expect(document.body.textContent).not.toContain("is connected");
 		act(() => button("Choose what it can use").click());
 		expect(grant).toHaveBeenCalledWith("a2");
 
@@ -140,24 +176,99 @@ describe("connect an agent", () => {
 		);
 	});
 
-	it("returns to the picker from an agent that arrived after Back", () => {
-		const setAgents: { current: (agents: Agent[]) => void } = {
-			current: () => undefined,
-		};
+	it("shows the popular apps first and the rest on request", () => {
+		render({});
+		const popular = document.querySelector("section");
+		expect(popular?.querySelector("h3")?.textContent).toBe("Popular");
+		expect(popular?.querySelectorAll("li")).toHaveLength(6);
+		expect(document.body.textContent).toContain("ChatGPT");
+		expect(document.body.textContent).not.toContain("Cline");
+		const toggle = button("Show all");
+		expect(toggle.textContent).toMatch(/^Show all \d+ apps$/);
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+		act(() => toggle.click());
+		expect(document.body.textContent).toContain("Cline");
+		expect(document.body.textContent).toContain("On a computer");
+		expect(document.body.textContent).not.toContain("Popular");
+		expect(toggle.textContent).toBe("Show fewer");
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+		act(() => toggle.click());
+		expect(document.body.textContent).not.toContain("Cline");
+	});
+
+	it("follows the computer's sign-in, then names it when the agent is set up", () => {
+		const setAgents = setter<Agent[]>();
+		const setDevices = setter<Device[]>();
+		const laptop: Device = { id: "d2", label: "Work laptop", revoked: false };
 		render({
-			reload: vi.fn(async () => undefined),
-			grant: vi.fn(),
-			agents: { current: [] },
+			devices: [{ id: "d1", label: "Old desktop", revoked: false }],
 			setAgents,
+			setDevices,
 		});
+		act(() => button("Claude Code").click());
+		expect(document.body.textContent).toContain(
+			"Waiting for Claude Code to be set up. This updates on its own.",
+		);
+		act(() =>
+			setDevices.current([
+				{ id: "d1", label: "Old desktop", revoked: false },
+				{ id: "d3", label: "Revoked box", revoked: true },
+			]),
+		);
+		expect(document.body.textContent).toContain(
+			"Waiting for Claude Code to be set up. This updates",
+		);
+		act(() =>
+			setDevices.current([
+				{ id: "d1", label: "Old desktop", revoked: false },
+				laptop,
+			]),
+		);
+		expect(
+			Array.from(document.querySelectorAll('[role="status"]')).at(-1)
+				?.textContent,
+		).toBe("Work laptop is signed in. Waiting for Claude Code to be set up.");
+
+		act(() =>
+			setAgents.current([
+				{ id: "a2", label: "Claude Code", deviceId: "d2", revoked: false },
+			]),
+		);
+		expect(heading()).toBe("Claude Code is set up on Work laptop");
+		expect(document.body.textContent).toContain(
+			"Restart Claude Code if it is running. It has not made a request yet",
+		);
+
+		act(() => button("Connect another agent").click());
+		act(() => button("Claude Code").click());
+		expect(document.body.textContent).toContain(
+			"Waiting for Claude Code to be set up. This updates",
+		);
+		act(() =>
+			setAgents.current([
+				{ id: "a2", label: "Claude Code", deviceId: "d2", revoked: false },
+				{ id: "a3", label: "Claude Code", deviceId: "gone", revoked: false },
+			]),
+		);
+		expect(heading()).toBe("Claude Code is set up on this computer");
+	});
+
+	it("returns to the picker from an agent that arrived after Back", () => {
+		const setAgents = setter<Agent[]>();
+		render({ setAgents });
 		act(() => button("Codex").click());
 		act(() => button("Back").click());
 		act(() =>
 			setAgents.current([{ id: "late", label: "Codex", revoked: false }]),
 		);
-		expect(document.body.textContent).toContain("Codex is connected");
+		expect(heading()).toBe("Codex was added");
+		expect(document.body.textContent).toContain(
+			"It can't use any MCP connections until you give it access.",
+		);
 		act(() => button("Connect another agent").click());
-		expect(document.body.textContent).not.toContain("is connected");
+		expect(document.body.textContent).not.toContain("was added");
 		expect(document.activeElement).toBe(
 			document.querySelector('input[type="search"]'),
 		);
@@ -166,12 +277,8 @@ describe("connect an agent", () => {
 	it("sends token apps to an agent token without waiting", async () => {
 		vi.useFakeTimers();
 		const reload = vi.fn(async () => undefined);
-		render({
-			reload,
-			grant: vi.fn(),
-			agents: { current: [] },
-			setAgents: { current: () => undefined },
-		});
+		render({ reload });
+		type("n8n");
 		act(() => button("n8n").click());
 		expect(document.body.textContent).toContain("Connects with an agent token");
 		expect(document.body.textContent).not.toContain("Waiting for");
