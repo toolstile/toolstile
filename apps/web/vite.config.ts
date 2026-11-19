@@ -3,6 +3,8 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, loadEnv } from "vite";
+import { fileURLToPath } from "node:url";
+import { stylexSources } from "./stylex-warmup";
 
 for (const [key, value] of Object.entries(
 	loadEnv("development", process.cwd(), ""),
@@ -36,6 +38,14 @@ export default defineConfig({
 	server: {
 		port: Number(process.env.PORT) || 4310,
 		host: process.env.HOST || "127.0.0.1",
+		// Compile every StyleX rule at startup, so a page is styled on its first visit.
+		warmup: {
+			clientFiles: stylexSources(
+				["./src", "../../packages/ui/src"].map((path) =>
+					fileURLToPath(new URL(path, import.meta.url)),
+				),
+			),
+		},
 	},
 	// A budget, not a silenced warning: the shared UI chunk is about 674 kB,
 	// mostly Base UI, zod (search validation) and icons, so it flags growth only.
