@@ -676,7 +676,7 @@ export function SetupGuide({
 	];
 	const callTime = firstCall ? formatTime(firstCall.createdAt) : "";
 	const callSummary = firstCall
-		? `${agentName} ${firstCall.target ? `called ${firstCall.target}` : "called a tool"}${connection ? ` on ${connection.label}` : ""}`
+		? `${agentName} ${firstCall.target ? `called ${firstCall.target}` : "called a tool"}${connection ? ` on ${connection.label}` : ""}${firstCall.failed ? "; the call failed" : ""}`
 		: `Waiting for ${activeAgent ? `${activeAgent.label}'s` : "your agent's"} first call`;
 	const callMark = firstCall?.failed ? (
 		<WarningCircleIcon aria-hidden="true" {...stylex.props(s.bad)} />
@@ -1062,7 +1062,7 @@ export function SetupGuide({
 											{connection ? ` on ${connection.label}` : ""}
 											{callTime ? ` at ${callTime}` : ""}.
 											{firstCall.failed
-												? " The provider returned an error, so check the request in Activity."
+												? " The call failed. View the request in Activity."
 												: ""}
 										</span>
 									</span>

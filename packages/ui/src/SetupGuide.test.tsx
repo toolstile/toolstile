@@ -480,6 +480,17 @@ describe("guided setup card", () => {
 		);
 		expect(html).toContain("Claude Code called a tool on deepwiki.com at ");
 	});
+	it("says so when the first call failed", () => {
+		const html = render(
+			{
+				...called,
+				firstCall: { ...called.firstCall, id: "act-1", failed: true },
+			} as SetupState,
+			granted(),
+		);
+		expect(html).toContain("The call failed. View the request in Activity.");
+		expect(render(called, granted())).not.toContain("The call failed.");
+	});
 	it("shows four steps in the docked card", () => {
 		const docked = (setup: SetupState, onViewCall?: (id: string) => void) =>
 			renderToStaticMarkup(
