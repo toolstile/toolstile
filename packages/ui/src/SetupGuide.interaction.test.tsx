@@ -307,6 +307,61 @@ describe("guided setup waiting for an agent", () => {
 	});
 });
 
+describe("guided setup giving access", () => {
+	it("keeps the docked step 3 line short after Configure access", async () => {
+		const state: SetupState = {
+			...waiting,
+			step: "access",
+			agentId: "signed-in",
+			completed: { ...waiting.completed, agent: true },
+		};
+		const api: SetupApi = {
+			setupStatus: vi.fn(),
+			setupAgents: vi.fn(async () => ({ agentIds: [] })),
+			saveSetup: vi.fn(),
+			verifySetup: vi.fn(),
+			setupFirstCall: vi.fn(async () => ({ firstCall: null })),
+		};
+		const onConfigureAccess = vi.fn();
+		const container = document.createElement("div");
+		const props = {
+			state,
+			api,
+			data: snapshot([signedIn]),
+			endpoint: "https://toolstile.example/mcp",
+			onState: () => undefined,
+			onDialog: () => undefined,
+			onConfigureAccess,
+			onDone: () => undefined,
+		};
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(<SetupGuide {...props} variant="docked" />),
+		);
+		const summary = () =>
+			container.querySelector('[role="status"]')?.textContent;
+		expect(summary()).toBe("Allow Claude Code to use deepwiki.com");
+		const configure = Array.from(container.querySelectorAll("button")).find(
+			(entry) => entry.textContent === "Configure access",
+		);
+		await act(async () => configure?.click());
+		expect(onConfigureAccess).toHaveBeenCalledWith("c1", "signed-in");
+		// The dock fits the action in its two lines; the full sentence stays in Details.
+		expect(summary()).toBe("Allow tools, then select Save changes");
+		act(() => root?.unmount());
+		root = createRoot(container);
+		await act(async () => root?.render(<SetupGuide {...props} />));
+		await act(async () =>
+			Array.from(container.querySelectorAll("button"))
+				.find((entry) => entry.textContent === "Configure access")
+				?.click(),
+		);
+		expect(container.textContent).toContain(
+			"On the Access page, allow the tools Claude Code may use, then select Save changes.",
+		);
+	});
+});
+
 describe("guided setup waiting for the first call", () => {
 	const agentSnapshot = () => {
 		const data = snapshot([signedIn]);
@@ -343,6 +398,85 @@ describe("guided setup waiting for the first call", () => {
 		completed: { ...verified.completed, call: true },
 		firstCall,
 	};
+	const dockedProps = (state: SetupState, api: SetupApi) => ({
+		state,
+		api,
+		data: agentSnapshot(),
+		endpoint: "https://toolstile.example/mcp",
+		variant: "docked" as const,
+		onState: () => undefined,
+		onDialog: () => undefined,
+		onConfigureAccess: () => undefined,
+		onDone: () => undefined,
+	});
+	const quietApi = (saveSetup: SetupApi["saveSetup"] = vi.fn()): SetupApi => ({
+		setupStatus: vi.fn(async () => called),
+		setupAgents: vi.fn(async () => ({ agentIds: [] })),
+		saveSetup,
+		verifySetup: vi.fn(),
+		setupFirstCall: vi.fn(async () => ({ firstCall: null })),
+	});
+	const skipButton = (container: HTMLElement) =>
+		container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Skip setup for now"]',
+		);
+	it("offers Skip again when Finish is rejected", async () => {
+		const saveSetup = vi.fn<SetupApi["saveSetup"]>(async () => {
+			throw new Error("Give access before finishing setup.");
+		});
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<SetupGuide {...dockedProps(called, quietApi(saveSetup))} />,
+			),
+		);
+		expect(skipButton(container)).toBeNull();
+		await act(async () =>
+			[...container.querySelectorAll("button")]
+				.find((element) => element.textContent?.startsWith("Finish"))
+				?.click(),
+		);
+		expect(saveSetup).toHaveBeenCalledTimes(1);
+		expect(container.textContent).toContain(
+			"Give access before finishing setup.",
+		);
+		expect(skipButton(container)).not.toBeNull();
+	});
+	it("moves focus from the dock's Skip to Finish when the first call arrives", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const api = quietApi();
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(verified, api)} />),
+		);
+		skipButton(container)?.focus();
+		expect(document.activeElement).toBe(skipButton(container));
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(called, api)} />),
+		);
+		expect(skipButton(container)).toBeNull();
+		expect(document.activeElement?.textContent).toMatch(/^Finish/);
+		container.remove();
+	});
+	it("leaves focus on the page when it was not on the dock", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const api = quietApi();
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(verified, api)} />),
+		);
+		(document.activeElement as HTMLElement | null)?.blur();
+		expect(document.activeElement).toBe(document.body);
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(called, api)} />),
+		);
+		expect(skipButton(container)).toBeNull();
+		expect(document.activeElement).toBe(document.body);
+		container.remove();
+	});
 	it("polls for the first call, then refreshes progress and the dashboard", async () => {
 		vi.useFakeTimers();
 		let serverCall: typeof firstCall | null = null;

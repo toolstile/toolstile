@@ -234,6 +234,16 @@ export function SetupGuide({
 	const fieldId = useId();
 	const panel = useRef<HTMLElement>(null);
 	const stepHeading = useRef<HTMLHeadingElement>(null);
+	/** The dock's main action: Finish once setup is complete. */
+	const dockAction = useRef<HTMLButtonElement>(null);
+	/** Whether the dock's Skip held focus as it was removed; React detaches refs before removal. */
+	const dockSkipHadFocus = useRef(false);
+	const dockSkipRef = (node: HTMLButtonElement | null) => {
+		if (!node) return;
+		return () => {
+			dockSkipHadFocus.current = document.activeElement === node;
+		};
+	};
 	const { step, client, connectionId, agentId } = state;
 	const verified = state.completed.verify;
 	const position =
@@ -267,6 +277,9 @@ export function SetupGuide({
 		[checking, setChecking] = useState(false),
 		[error, setError] = useState(""),
 		[checkError, setCheckError] = useState("");
+	// Once every step is done there is nothing to skip, unless Finish was rejected (for example
+	// access changed elsewhere): then Skip stays the way out.
+	const showSkip = !complete || !!error;
 	useEffect(() => {
 		if (
 			previous.current.position !== position ||
@@ -280,16 +293,22 @@ export function SetupGuide({
 	useEffect(() => {
 		if (state.status === "active") setLeaving(false);
 	}, [state.status]);
-	// The prompt's copy button goes away when the first call arrives; focus that was on it
-	// moves to the step heading rather than to the page.
+	// The prompt's copy button and the Skip controls go away when the first call arrives; focus
+	// that was on them moves to the step heading or Finish rather than to the page.
 	const wasComplete = useRef(complete);
 	useEffect(() => {
 		if (
 			complete &&
 			!wasComplete.current &&
 			document.activeElement === document.body
-		)
-			stepHeading.current?.focus({ preventScroll: true });
+		) {
+			// The heading exists only with Details open; docked, Finish takes the dock's Skip focus.
+			if (stepHeading.current)
+				stepHeading.current.focus({ preventScroll: true });
+			else if (dockSkipHadFocus.current)
+				dockAction.current?.focus({ preventScroll: true });
+		}
+		dockSkipHadFocus.current = false;
 		wasComplete.current = complete;
 	}, [complete]);
 	// the step, collapse and dialog change which panel and content are measured.
@@ -658,6 +677,10 @@ export function SetupGuide({
 	const accessSteps = activeAgent
 		? `On the Access page, allow the tools ${activeAgent.label} may use, then select Save changes.`
 		: "";
+	// The dock has two lines for its summary, so it keeps only the action; Details has the rest.
+	const accessDockSteps = activeAgent
+		? "Allow tools, then select Save changes"
+		: "";
 	const agentName = activeAgent?.label ?? "your agent";
 	const firstCall = state.firstCall;
 	// The app to restart: the one the agent's name comes from, else the agent itself, such as a
@@ -748,15 +771,17 @@ export function SetupGuide({
 					</h3>
 				</div>
 				<div {...stylex.props(s.actions)}>
-					<button
-						type="button"
-						{...stylex.props(controls.button, controls.quiet, controls.small)}
-						disabled={busy}
-						aria-label="Skip setup for now"
-						onClick={skip}
-					>
-						Skip
-					</button>
+					{showSkip ? (
+						<button
+							type="button"
+							{...stylex.props(controls.button, controls.quiet, controls.small)}
+							disabled={busy}
+							aria-label="Skip setup for now"
+							onClick={skip}
+						>
+							Skip
+						</button>
+					) : null}
 					{inDialog ? (
 						<button
 							type="button"
@@ -1174,8 +1199,8 @@ export function SetupGuide({
 							? checkError
 							: !canConfigureAccess && !state.completed.access
 								? "Ask an administrator for access"
-								: accessHint && accessSteps
-									? accessSteps
+								: accessHint && accessDockSteps
+									? accessDockSteps
 									: activeAgent && connection
 										? `Allow ${activeAgent.label} to use ${connection.label}`
 										: "Choose an MCP connection and an agent first";
@@ -1238,16 +1263,19 @@ export function SetupGuide({
 							<span {...stylex.props(layout.visuallyHidden)}>Step </span>
 							{position + 1} of {visibleSteps.length}
 						</span>
-						<button
-							type="button"
-							aria-label="Skip setup for now"
-							title="Skip setup for now"
-							{...stylex.props(s.dockClose)}
-							disabled={busy}
-							onClick={skip}
-						>
-							<XIcon size={14} aria-hidden="true" />
-						</button>
+						{showSkip ? (
+							<button
+								ref={dockSkipRef}
+								type="button"
+								aria-label="Skip setup for now"
+								title="Skip setup for now"
+								{...stylex.props(s.dockClose)}
+								disabled={busy}
+								onClick={skip}
+							>
+								<XIcon size={14} aria-hidden="true" />
+							</button>
+						) : null}
 					</div>
 					<div aria-hidden="true" {...stylex.props(s.segments)}>
 						{visibleSteps.map((entry, index) => (
@@ -1273,6 +1301,7 @@ export function SetupGuide({
 					</div>
 					<div {...stylex.props(s.dockActions)}>
 						<button
+							ref={dockAction}
 							type="button"
 							{...stylex.props(s.dockLink, complete && s.dockFinish)}
 							disabled={action.disabled}
