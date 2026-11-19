@@ -2,20 +2,25 @@ import type { SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { Pool } from "./sql";
 /** Expired sessions are already rejected; this only removes the sign-in IP address and
- * user agent of sessions nobody signed out of. Bounded per scan; the next scan continues. */
+ * user agent of sessions nobody signed out of. It also removes CLI sign-in codes an hour past
+ * expiry (redeemed ones are already gone) and device approvals whose code was never redeemed.
+ * Bounded per scan; the next scan continues. Returns the number of sessions deleted. */
 export async function purgeExpiredSessions(
 	pool: Pick<Pool, "query">,
 	{ batch = 1000, batches = 10 } = {},
 ) {
+	const statements = [
+		`delete from session where id in (select id from session where "expiresAt" < clock_timestamp() - (3600000) * interval '1 millisecond' order by "expiresAt" limit $1)`,
+		`delete from device_code where id in (select id from device_code where "expiresAt" < clock_timestamp() - (3600000) * interval '1 millisecond' limit $1)`,
+		`delete from cli_device_links where "deviceCode" in (select "deviceCode" from cli_device_links where "sessionId" is null and "createdAt" < clock_timestamp() - (3600000) * interval '1 millisecond' limit $1)`,
+	];
 	let deleted = 0;
-	for (let round = 0; round < batches; round++) {
-		const { rowCount } = await pool.query(
-			`delete from session where id in (select id from session where "expiresAt" < clock_timestamp() - (3600000) * interval '1 millisecond' order by "expiresAt" limit $1)`,
-			[batch],
-		);
-		deleted += rowCount ?? 0;
-		if ((rowCount ?? 0) < batch) break;
-	}
+	for (const [index, statement] of statements.entries())
+		for (let round = 0; round < batches; round++) {
+			const { rowCount } = await pool.query(statement, [batch]);
+			if (index === 0) deleted += rowCount ?? 0;
+			if ((rowCount ?? 0) < batch) break;
+		}
 	return deleted;
 }
 /**

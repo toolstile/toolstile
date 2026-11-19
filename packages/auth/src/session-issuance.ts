@@ -33,12 +33,6 @@ export interface SessionIssuanceOptions {
 		userId: string,
 		since: string,
 	): Promise<boolean>;
-	/** The account a request will sign in, when it is known before any credential check. */
-	subject?(
-		path: string,
-		body: unknown,
-		pool: Pool,
-	): Promise<string | undefined>;
 }
 /** Paths that create sessions after validating a credential. */
 const ISSUING =
@@ -74,6 +68,7 @@ export function sessionIssuanceGuard(options: SessionIssuanceOptions) {
 		tx
 			.query<{ now: string }>("select clock_timestamp()::text as now")
 			.then(({ rows: [row] }) => row.now);
+	/** The account a request will sign in, when it is known before any credential check. */
 	async function subject(path: string, body: unknown) {
 		if (path === "/sign-in/email") {
 			const email = (body as { email?: unknown } | undefined)?.email;
@@ -86,7 +81,19 @@ export function sessionIssuanceGuard(options: SessionIssuanceOptions) {
 			);
 			return user?.id;
 		}
-		return options.subject?.(path, body, options.pool);
+		// A CLI redeeming a device code signs in the account that approved it.
+		if (path === "/device/token") {
+			const code = (body as { device_code?: unknown } | undefined)?.device_code;
+			if (typeof code !== "string") return undefined;
+			const {
+				rows: [row],
+			} = await options.pool.query<{ userId: string | null }>(
+				'select "userId" from device_code where "deviceCode"=$1',
+				[code],
+			);
+			return row?.userId ?? undefined;
+		}
+		return undefined;
 	}
 	return {
 		/** Before a session-issuing endpoint: its start time, read under the account's fence. */

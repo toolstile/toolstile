@@ -36,6 +36,7 @@ import { Route as AuthIndexRouteImport } from './routes/auth.index'
 import { Route as AuthRecoverAccountRouteImport } from './routes/auth.recover-account'
 import { Route as AuthSignInRouteImport } from './routes/auth.sign-in'
 import { Route as AuthSignUpRouteImport } from './routes/auth.sign-up'
+import { Route as AuthDeviceRouteImport } from './routes/auth_.device'
 import { Route as ConnectorLogosFileRouteImport } from './routes/connector-logos.$file'
 import { Route as OauthClientMetadataDotjsonRouteImport } from './routes/oauth.client-metadata[.]json'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -44,6 +45,7 @@ import { Route as SettingsInstanceRouteImport } from './routes/settings.instance
 import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
 import { Route as SettingsUsersRouteImport } from './routes/settings.users'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
+import { Route as ApiCliSplatRouteImport } from './routes/api.cli.$'
 import { Route as ApiRpcSplatRouteImport } from './routes/api.rpc.$'
 import { Route as AppConnectionsCatalogRouteImport } from './routes/app.connections_.catalog'
 import { Route as AppSettingsIndexRouteImport } from './routes/app.settings.index'
@@ -189,6 +191,11 @@ const AuthSignUpRoute = AuthSignUpRouteImport.update({
   path: '/sign-up',
   getParentRoute: () => AuthRoute,
 } as any)
+const AuthDeviceRoute = AuthDeviceRouteImport.update({
+  id: '/auth_/device',
+  path: '/auth/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ConnectorLogosFileRoute = ConnectorLogosFileRouteImport.update({
   id: '/connector-logos/$file',
   path: '/connector-logos/$file',
@@ -228,6 +235,11 @@ const SettingsUsersRoute = SettingsUsersRouteImport.update({
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCliSplatRoute = ApiCliSplatRouteImport.update({
+  id: '/api/cli/$',
+  path: '/api/cli/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiRpcSplatRoute = ApiRpcSplatRouteImport.update({
@@ -303,6 +315,7 @@ export interface FileRoutesByFullPath {
   '/auth/recover-account': typeof AuthRecoverAccountRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/auth/device': typeof AuthDeviceRoute
   '/connector-logos/$file': typeof ConnectorLogosFileRoute
   '/oauth/client-metadata.json': typeof OauthClientMetadataDotjsonRoute
   '/settings/endpoint': typeof SettingsEndpointRoute
@@ -313,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/auth/': typeof AuthIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cli/$': typeof ApiCliSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/app/connections/catalog': typeof AppConnectionsCatalogRouteWithChildren
   '/app/settings/endpoint': typeof AppSettingsEndpointRoute
@@ -347,6 +361,7 @@ export interface FileRoutesByTo {
   '/auth/recover-account': typeof AuthRecoverAccountRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/auth/device': typeof AuthDeviceRoute
   '/connector-logos/$file': typeof ConnectorLogosFileRoute
   '/oauth/client-metadata.json': typeof OauthClientMetadataDotjsonRoute
   '/settings/endpoint': typeof SettingsEndpointRoute
@@ -357,6 +372,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cli/$': typeof ApiCliSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/app/connections/catalog': typeof AppConnectionsCatalogRouteWithChildren
   '/app/settings/endpoint': typeof AppSettingsEndpointRoute
@@ -394,6 +410,7 @@ export interface FileRoutesById {
   '/auth/recover-account': typeof AuthRecoverAccountRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
+  '/auth_/device': typeof AuthDeviceRoute
   '/connector-logos/$file': typeof ConnectorLogosFileRoute
   '/oauth/client-metadata.json': typeof OauthClientMetadataDotjsonRoute
   '/settings/endpoint': typeof SettingsEndpointRoute
@@ -404,6 +421,7 @@ export interface FileRoutesById {
   '/auth/': typeof AuthIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cli/$': typeof ApiCliSplatRoute
   '/api/rpc/$': typeof ApiRpcSplatRoute
   '/app/connections_/catalog': typeof AppConnectionsCatalogRouteWithChildren
   '/app/settings/endpoint': typeof AppSettingsEndpointRoute
@@ -442,6 +460,7 @@ export interface FileRouteTypes {
     | '/auth/recover-account'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/auth/device'
     | '/connector-logos/$file'
     | '/oauth/client-metadata.json'
     | '/settings/endpoint'
@@ -452,6 +471,7 @@ export interface FileRouteTypes {
     | '/auth/'
     | '/settings/'
     | '/api/auth/$'
+    | '/api/cli/$'
     | '/api/rpc/$'
     | '/app/connections/catalog'
     | '/app/settings/endpoint'
@@ -486,6 +506,7 @@ export interface FileRouteTypes {
     | '/auth/recover-account'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/auth/device'
     | '/connector-logos/$file'
     | '/oauth/client-metadata.json'
     | '/settings/endpoint'
@@ -496,6 +517,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/settings'
     | '/api/auth/$'
+    | '/api/cli/$'
     | '/api/rpc/$'
     | '/app/connections/catalog'
     | '/app/settings/endpoint'
@@ -532,6 +554,7 @@ export interface FileRouteTypes {
     | '/auth/recover-account'
     | '/auth/sign-in'
     | '/auth/sign-up'
+    | '/auth_/device'
     | '/connector-logos/$file'
     | '/oauth/client-metadata.json'
     | '/settings/endpoint'
@@ -542,6 +565,7 @@ export interface FileRouteTypes {
     | '/auth/'
     | '/settings/'
     | '/api/auth/$'
+    | '/api/cli/$'
     | '/api/rpc/$'
     | '/app/connections_/catalog'
     | '/app/settings/endpoint'
@@ -569,6 +593,7 @@ export interface RootRouteChildren {
   RecoverAccountRoute: typeof RecoverAccountRoute
   DotwellKnownSplatRoute: typeof DotwellKnownSplatRoute
   ApiAgentOauthRoute: typeof ApiAgentOauthRoute
+  AuthDeviceRoute: typeof AuthDeviceRoute
   ConnectorLogosFileRoute: typeof ConnectorLogosFileRoute
   OauthClientMetadataDotjsonRoute: typeof OauthClientMetadataDotjsonRoute
   SettingsEndpointRoute: typeof SettingsEndpointRoute
@@ -577,6 +602,7 @@ export interface RootRouteChildren {
   SettingsUsersRoute: typeof SettingsUsersRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiCliSplatRoute: typeof ApiCliSplatRoute
   ApiRpcSplatRoute: typeof ApiRpcSplatRoute
   OauthUpstreamCallbackRoute: typeof OauthUpstreamCallbackRoute
 }
@@ -772,6 +798,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthSignUpRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/auth_/device': {
+      id: '/auth_/device'
+      path: '/auth/device'
+      fullPath: '/auth/device'
+      preLoaderRoute: typeof AuthDeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/connector-logos/$file': {
       id: '/connector-logos/$file'
       path: '/connector-logos/$file'
@@ -826,6 +859,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cli/$': {
+      id: '/api/cli/$'
+      path: '/api/cli/$'
+      fullPath: '/api/cli/$'
+      preLoaderRoute: typeof ApiCliSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/rpc/$': {
@@ -976,6 +1016,7 @@ const rootRouteChildren: RootRouteChildren = {
   RecoverAccountRoute: RecoverAccountRoute,
   DotwellKnownSplatRoute: DotwellKnownSplatRoute,
   ApiAgentOauthRoute: ApiAgentOauthRoute,
+  AuthDeviceRoute: AuthDeviceRoute,
   ConnectorLogosFileRoute: ConnectorLogosFileRoute,
   OauthClientMetadataDotjsonRoute: OauthClientMetadataDotjsonRoute,
   SettingsEndpointRoute: SettingsEndpointRoute,
@@ -984,6 +1025,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsUsersRoute: SettingsUsersRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiCliSplatRoute: ApiCliSplatRoute,
   ApiRpcSplatRoute: ApiRpcSplatRoute,
   OauthUpstreamCallbackRoute: OauthUpstreamCallbackRoute,
 }

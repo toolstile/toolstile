@@ -22,6 +22,26 @@ Passwords contain 12–128 characters. Invitations expire and are consumed once.
 
 Recovery codes contain 192 random bits, are stored as digests, and can each be redeemed once. Rotating codes requires a session created in the preceding ten minutes and invalidates previous codes. Recovery changes the password, revokes dashboard sessions and agent bearer/OAuth credentials, and can restore a deletion request before its deadline. It does not restore revoked agent access or bypass suspension. Sign in again after recovery.
 
+## CLI sign-in
+
+`createAuth({cliDevices})` adds Better Auth's device authorization plugin (RFC 8628). It issues codes only to client `toolstile-cli`; they expire after ten minutes and the CLI polls every five seconds. The plugin's own lookup, approval and denial routes are disabled. The self-hosted application serves the approval page at `/auth/device`, which reads `user_code`, `device_name` and `next=setup` from its link. The page first looks the code up (`POST /api/cli/lookup`), which binds a pending code to the signed-in account; only that account can then approve it (`POST /api/cli/approve`) or deny it (`POST /api/cli/deny`). Redeeming an approved code (`POST /api/auth/device/token`) issues an ordinary session, ordered with account recovery and resets like every other sign-in; those changes also deny codes approved but not yet redeemed. Lookups need a signed-in account and are limited per account, ten per ten minutes, misses included, so anonymous traffic cannot use up anyone's quota and short user codes cannot be guessed. In production, Better Auth's in-memory rate limits also apply per client address (its `x-forwarded-for` header), including to code requests. Unredeemed codes and approvals are purged an hour after they expire.
+
+`createCliHttpHandler` serves `/api/cli/*`. Except for `lookup`, `approve` and `deny`, requests carry that session token as `Authorization: Bearer <token>`. Only these routes accept it: the handler re-signs it into a session cookie, so Better Auth's routes and the dashboard API still require a browser cookie. Responses are `Cache-Control: no-store`; failures return `{message}` with the status (400 invalid input or code, 401 not signed in, 403 refused, 404 not found or another account's agent, 408 or 413 for a stalled or oversized body, 429 too many lookups).
+
+| Endpoint | Input | Response |
+| --- | --- | --- |
+| `POST lookup` | Browser session cookie, same `Origin`; `{userCode}` | `{status}` (`pending`, `approved` or `denied`) for a code bound to this account, binding it if it is pending and unbound; 400 for any other code, 429 over the account's limit |
+| `POST approve` | Browser session cookie, same `Origin`; `{userCode, deviceName}` | `{device: {id, label}}`: the account's device with that name (any case), or a new one, named in the same transaction that approves a pending code bound to this account; a refused approval changes nothing |
+| `POST deny` | Browser session cookie, same `Origin`; `{userCode}` | 204 when a pending code bound to this account was denied; 400 otherwise, leaving the code unchanged |
+| `GET account` | Bearer | `{email, name, expiresAt, device, mcpUrl, edition, workspaces}`; `device` is the one named at approval, or `null`; the self-hosted application returns `edition: "self-hosted"` and `workspaces: []` |
+| `POST sign-out` | Bearer | 204; deletes only this session |
+| `POST device` | Bearer; `{label, id?, rename?}` | `{id, label}`: the device `id` while it is the caller's and not revoked (renamed when `rename` is true), otherwise a new device |
+| `GET agents?deviceId=` | Bearer | `{agents: [{id, label}]}`: the caller's live agents on that device |
+| `POST agents` | Bearer; `{deviceId, label}` | 201 `{id, label, token}`: a token agent (`ts_`, no expiry) on the caller's device, with no grants; the token is shown once |
+| `DELETE agents/<id>` | Bearer | 204; revokes the caller's agent |
+
+Labels are 1–100 characters after control characters are removed. The self-hosted application ignores `workspaceId`, which clients written for other servers may send.
+
 ## Optional email
 
 Configure `SMTP_HOST`, `SMTP_FROM`, and optionally `SMTP_PORT` (default 465), `SMTP_USER`, and `SMTP_PASSWORD`. Port 465 uses TLS; other ports require STARTTLS with normal certificate validation. Without the required configuration, email recovery and verification delivery are disabled.

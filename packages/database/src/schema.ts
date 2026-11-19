@@ -11,6 +11,7 @@ import {
 	pgTable,
 	primaryKey,
 	text,
+	uniqueIndex,
 } from "./pg-columns";
 export const user = pgTable(
 	"user",
@@ -20,8 +21,12 @@ export const user = pgTable(
 		email: text().notNull().unique(),
 		emailVerified: boolean().notNull().default(false),
 		image: text(),
-		createdAt: dateTime().notNull().default(sql`now()`),
-		updatedAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
+		updatedAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [index("user_email_lower").on(sql`lower(${t.email})`)],
 );
@@ -31,8 +36,12 @@ export const session = pgTable(
 		id: text().primaryKey(),
 		token: text().notNull().unique(),
 		expiresAt: dateTime().notNull(),
-		createdAt: dateTime().notNull().default(sql`now()`),
-		updatedAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
+		updatedAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 		ipAddress: text(),
 		userAgent: text(),
 		userId: text()
@@ -60,8 +69,12 @@ export const account = pgTable(
 		refreshTokenExpiresAt: dateTime(),
 		scope: text(),
 		password: text(),
-		createdAt: dateTime().notNull().default(sql`now()`),
-		updatedAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
+		updatedAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [index("account_user").on(t.userId)],
 );
@@ -70,8 +83,12 @@ export const verification = pgTable("verification", {
 	identifier: text().notNull(),
 	value: text().notNull(),
 	expiresAt: dateTime().notNull(),
-	createdAt: dateTime().notNull().default(sql`now()`),
-	updatedAt: dateTime().notNull().default(sql`now()`),
+	createdAt: dateTime()
+		.notNull()
+		.default(sql`now()`),
+	updatedAt: dateTime()
+		.notNull()
+		.default(sql`now()`),
 });
 export const devices = pgTable(
 	"devices",
@@ -83,7 +100,9 @@ export const devices = pgTable(
 			.references(() => user.id),
 		label: text().notNull(),
 		revokedAt: dateTime(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [index("device_owner").on(t.ownerId)],
 );
@@ -98,7 +117,9 @@ export const agents = pgTable(
 			.notNull()
 			.references(() => devices.id),
 		label: text().notNull(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [
 		index("agent_owner").on(t.ownerId),
@@ -119,7 +140,9 @@ export const connections = pgTable(
 		encryptedHeaders: text().notNull(),
 		status: text().$type<ConnectionStatus>().notNull().default("configured"),
 		connectorId: text(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [index("connection_owner").on(t.ownerId)],
 );
@@ -131,7 +154,9 @@ export const sourceNamespaces = pgTable(
 		scopeId: text().notNull(),
 		namespace: text().notNull(),
 		sourceId: text().notNull().unique(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [primaryKey({ columns: [t.scopeId, t.namespace] })],
 );
@@ -143,7 +168,9 @@ export const connectorRequests = pgTable(
 		requestId: text("request_id").notNull(),
 		fingerprint: text().notNull(),
 		response: json().notNull(),
-		createdAt: dateTime("created_at").notNull().default(sql`now()`),
+		createdAt: dateTime("created_at")
+			.notNull()
+			.default(sql`now()`),
 	},
 	(table) => [
 		primaryKey({ columns: [table.ownerId, table.scopeId, table.requestId] }),
@@ -156,7 +183,9 @@ export const upstreamOAuthGrants = pgTable("upstream_oauth_grants", {
 	refreshPending: boolean().notNull().default(false),
 	id: text().primaryKey(),
 	encryptedData: text().notNull(),
-	updatedAt: dateTime().notNull().default(sql`now()`),
+	updatedAt: dateTime()
+		.notNull()
+		.default(sql`now()`),
 });
 export const connectionOAuth = pgTable("connection_oauth", {
 	connectionId: text()
@@ -329,6 +358,47 @@ export const oauthFlowSelection = pgTable("oauth_flow_selection", {
 	referenceId: text().notNull(),
 	expiresAt: dateTime().notNull(),
 });
+/**
+ * Better Auth's device authorization model (RFC 8628, `deviceCode`): `toolstile auth login`
+ * prints a user code that a signed-in browser approves, with no callback URL.
+ */
+export const deviceCode = pgTable(
+	"device_code",
+	{
+		id: text().primaryKey(),
+		deviceCode: text().notNull().unique(),
+		userCode: text().notNull().unique(),
+		userId: text().references(() => user.id, { onDelete: "cascade" }),
+		expiresAt: dateTime().notNull(),
+		status: text().notNull(),
+		lastPolledAt: dateTime(),
+		pollingInterval: integer(),
+		clientId: text(),
+		scope: text(),
+	},
+	(t) => [index("device_code_expires").on(t.expiresAt)],
+);
+/**
+ * The device a CLI sign-in approval named. Keyed by device code until the CLI redeems it,
+ * then by the CLI session, so the CLI can ask which device it is.
+ */
+export const cliDeviceLinks = pgTable(
+	"cli_device_links",
+	{
+		deviceCode: text().primaryKey(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		deviceId: text()
+			.notNull()
+			.references(() => devices.id, { onDelete: "cascade" }),
+		sessionId: text().references(() => session.id, { onDelete: "cascade" }),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
+	},
+	(t) => [uniqueIndex("cli_device_links_session").on(t.sessionId)],
+);
 export const oauthSchema = {
 	oauthClient,
 	oauthResource,
@@ -344,6 +414,7 @@ export const authSchema = {
 	session,
 	account,
 	verification,
+	deviceCode,
 	...oauthSchema,
 };
 export const baseSchema = {
@@ -355,6 +426,7 @@ export const baseSchema = {
 	upstreamOAuthGrants,
 	upstreamOAuthFlows,
 	oauthFlowSelection,
+	cliDeviceLinks,
 };
 /** Ephemeral assertion rows exist only inside an atomic batch and are removed in it. */
 export const atomicPlanGuard = pgTable(

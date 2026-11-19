@@ -50,9 +50,20 @@ The default origin is `http://127.0.0.1:4310`. The persistent directory defaults
 
 `init` never replaces an existing configuration and applies pending migrations. `start` also migrates before accepting requests. Stop with SIGINT/SIGTERM. After a restart, accounts, encrypted credentials, grants, approval deadlines and persistent maintenance/outbox work remain. Open protocol connections can be interrupted; reconnect the client. Uncertain upstream actions must not be replayed automatically. Maintenance retries due work every minute while the server is running. The bundled catalog works without toolstile.com; fetching a remote catalog is optional through `TOOLSTILE_CATALOG_FETCH`.
 
+## Connecting agents with the CLI
+
+With the server running, the `toolstile` CLI (version 0.8.0 or later; earlier releases cannot sign in to or set up agents on this server) can sign in to it and set up the agent apps on this computer. Use the instance origin, `http://127.0.0.1:4310` by default:
+
+```sh
+npx toolstile auth login --server http://127.0.0.1:4310
+npx toolstile mcp setup
+```
+
+The link it prints opens `/auth/device` on the instance; sign in there, check the code and approve. Each agent app gets its own agent under this computer's device, with no access until you grant it in the dashboard. `npx toolstile auth logout` ends only the CLI's session. The CLI accepts `http://` only for a loopback origin (`localhost`, `127.0.0.0/8`, `[::1]`); other machines sign in through the HTTPS origin described below.
+
 ## Multiple devices and secure LAN access
 
-Register a separate device and agent for each client in the dashboard, copy its endpoint/credential configuration and grant only the connections/capabilities it needs. Revoking one agent removes that agent's access without reviving or changing another agent. Credentials belong to this instance's issuer and audience; do not reuse credentials from another installation.
+Register a separate device and agent for each client in the dashboard (or sign each machine's CLI in as above), copy its endpoint/credential configuration and grant only the connections/capabilities it needs. Revoking one agent removes that agent's access without reviving or changing another agent. Credentials belong to this instance's issuer and audience; do not reuse credentials from another installation.
 
 For other devices, choose a stable HTTPS hostname and configure a TLS reverse proxy to this instance. Prefer keeping Node on loopback and exposing only the proxy. Initialize a new directory with that public origin:
 

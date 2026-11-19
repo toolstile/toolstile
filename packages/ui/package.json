@@ -24,6 +24,7 @@
 		"./activity-page": "./src/ActivityPage.tsx",
 		"./account-navigation": "./src/AccountNavigation.ts",
 		"./auth-loading": "./src/AuthLoading.tsx",
+		"./device-approval": "./src/DeviceApproval.tsx",
 		"./account-session": "./src/AccountSession.ts",
 		"./account-gate": "./src/AccountSessionBoundary.tsx",
 		"./layout": "./src/Layout.styles.ts",

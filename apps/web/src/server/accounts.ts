@@ -71,6 +71,11 @@ export function createAccountService(
 			'update "oauthRefreshToken" set revoked=clock_timestamp() where "userId"=$1 and revoked is null',
 			[userId],
 		);
+		// A CLI sign-in code approved but not yet redeemed would sign in after the revocation.
+		await tx.query(
+			`update device_code set status='denied' where "userId"=$1 and status in ('pending','approved')`,
+			[userId],
+		);
 		await tx.query('delete from session where "userId"=$1', [userId]);
 	}
 	async function assertActive(tx: Transaction, userId: string) {
