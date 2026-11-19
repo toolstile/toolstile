@@ -8,6 +8,7 @@ import {
 	type Actor,
 	accountDeletionView,
 	accountStatusView,
+	activityView,
 	agentCatalogInput,
 	agentCatalogView,
 	agentCreatedView,
@@ -60,6 +61,11 @@ export interface Services {
 		input: z.infer<typeof upstreamOAuthInput>,
 	): Promise<{ url: string }>;
 	snapshot(actor: Actor): Promise<Snapshot>;
+	/** One Activity row by id, under the snapshot's visibility and retention; `null` when not shown. */
+	activityRequest(
+		actor: Actor,
+		id: string,
+	): Promise<z.infer<typeof activityView> | null>;
 	addConnection(
 		actor: Actor,
 		input: z.infer<typeof connectionInput>,
@@ -163,6 +169,12 @@ export function createCommonRouter() {
 		snapshot: procedure
 			.output(snapshotView)
 			.handler(({ context }) => context.services.snapshot(context.actor)),
+		activityRequest: procedure
+			.input(z.object({ id: z.string().min(1).max(200) }))
+			.output(activityView.nullable())
+			.handler(({ context, input }) =>
+				context.services.activityRequest(context.actor, input.id),
+			),
 		addConnection: procedure
 			.input(connectionInput)
 			.output(connectionCreatedView)

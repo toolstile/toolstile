@@ -127,13 +127,11 @@ describe("activity panel", () => {
 		expect(segments(html, "Source")).toEqual(["Agents 2", "All 5"]);
 		expect(html).toMatch(/<button type="button" aria-current="page">All/);
 	});
-	it("renders normally when the linked request is not loaded", () => {
+	it("renders normally while a linked request that is not loaded is looked up", () => {
 		const html = render(mixed, { request: "missing" });
 		expect(html).not.toContain('aria-current="true"');
 		expect(html).toContain("Showing all 2 recent requests");
-		expect(html).toContain(
-			"The linked request is older than the recent requests",
-		);
-		expect(render(mixed)).not.toContain("The linked request is older");
+		// The note waits for the lookup's answer (see the interaction tests).
+		expect(html).not.toContain("The linked request is no longer available");
 	});
 });

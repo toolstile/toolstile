@@ -5,7 +5,7 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import type { ManagementClient } from "@toolstile/api/client";
 import type { ActivityOutcomeFilter, Snapshot } from "@toolstile/api/contract";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { controls } from "./Control.styles";
 import { dashboardStyles as styles } from "./Dashboard.styles";
 import { DebugPanel } from "./DebugPanel";
@@ -187,21 +187,43 @@ export function ActivityPanel({
 	const query = view.query ?? "";
 	const needle = query.trim().toLowerCase();
 	const filter = filters.find((item) => item.id === outcome) ?? filters[0];
+	const loaded =
+		!!view.request && data.activity.some((entry) => entry.id === view.request);
+	// Only recent requests are loaded; a linked older one is read on its own, once per id.
+	const [linked, setLinked] = useState<{
+		id: string;
+		entry: Snapshot["activity"][number] | null;
+	}>();
+	const lookup = useRef<string | undefined>(undefined);
+	useEffect(() => {
+		const id = view.request;
+		if (!id || loaded || lookup.current === id) return;
+		lookup.current = id;
+		const settle = (entry: Snapshot["activity"][number] | null) => {
+			if (lookup.current === id) setLinked({ id, entry });
+		};
+		api.activityRequest({ id }).then(settle, () => settle(null));
+	}, [api, view.request, loaded]);
+	const fetched =
+		!loaded && linked && linked.id === view.request ? linked : undefined;
+	const activity = fetched?.entry
+		? withEntry(data.activity, fetched.entry)
+		: data.activity;
 	const requested = view.request
-		? data.activity.find((entry) => entry.id === view.request)
+		? activity.find((entry) => entry.id === view.request)
 		: undefined;
-	// Only recent requests are loaded, so a link to an older one has no row to show.
-	const missing = !!view.request && !requested;
+	// The lookup answered that the caller cannot see the request, or it no longer exists.
+	const missing = !!fetched && !fetched.entry;
 	// A linked request the dashboard made is shown with every source.
 	const source =
 		view.source === "all" || requested?.origin === "dashboard"
 			? "all"
 			: "agents";
-	const agentActivity = data.activity.filter(
+	const agentActivity = activity.filter(
 		(entry) => entry.origin !== "dashboard",
 	);
-	const sourced = source === "all" ? data.activity : agentActivity;
-	const hidden = data.activity.length - sourced.length;
+	const sourced = source === "all" ? activity : agentActivity;
+	const hidden = activity.length - sourced.length;
 	const matching = sourced.filter(
 		(entry) =>
 			filter.matches(entry.outcome) &&
@@ -258,6 +280,10 @@ export function ActivityPanel({
 					}
 				/>
 			) : null}
+			{/* With no rows to frame, the linked-request note stands above the empty state. */}
+			{tab === "requests" && !sourced.length && missing ? (
+				<p {...stylex.props(local.notice)}>{missingNote}</p>
+			) : null}
 			{tab === "debug" && debug ? (
 				<DebugPanel
 					api={api}
@@ -275,9 +301,7 @@ export function ActivityPanel({
 								{sources.map((item) => {
 									const selected = item.id === source;
 									const total =
-										item.id === "all"
-											? data.activity.length
-											: agentActivity.length;
+										item.id === "all" ? activity.length : agentActivity.length;
 									return (
 										<button
 											key={item.id}
@@ -560,12 +584,7 @@ export function ActivityPanel({
 						hidden ||
 						missing ? (
 							<div {...stylex.props(local.footnote)}>
-								{missing ? (
-									<span role="status">
-										The linked request is older than the recent requests shown
-										here.
-									</span>
-								) : null}
+								{missing ? missingNote : null}
 								{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
 									<span>
 										{matching.length === sourced.length
@@ -589,7 +608,7 @@ export function ActivityPanel({
 						) : null}
 					</section>
 				</>
-			) : data.activity.length ? (
+			) : activity.length ? (
 				<EmptyState
 					icon={ClockCounterClockwiseIcon}
 					title="No agent has made a request yet"
@@ -623,6 +642,21 @@ export function ActivityPanel({
 			)}
 		</div>
 	);
+}
+
+const missingNote = (
+	<span role="status">The linked request is no longer available.</span>
+);
+/** The loaded requests with one more, kept newest first. */
+function withEntry(
+	activity: Snapshot["activity"],
+	entry: Snapshot["activity"][number],
+) {
+	const at = Date.parse(entry.createdAt);
+	const index = activity.findIndex((item) => Date.parse(item.createdAt) < at);
+	return index < 0
+		? [...activity, entry]
+		: [...activity.slice(0, index), entry, ...activity.slice(index)];
 }
 
 const mobile = "@media (max-width: 640px)";
@@ -872,6 +906,14 @@ const local = stylex.create({
 		color: colors.muted,
 		fontSize: text.body,
 		lineHeight: text.bodyLeading,
+		textAlign: "center",
+	},
+	// The linked-request note above an empty state, in the footer's quiet type.
+	notice: {
+		margin: 0,
+		color: colors.muted,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
 		textAlign: "center",
 	},
 	pagination: {

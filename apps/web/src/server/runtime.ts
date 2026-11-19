@@ -590,6 +590,37 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		},
 		create: createConfirmedConnection,
 	});
+	/** The Activity rows a user sees: their own within the instance's retention. */
+	async function visibleActivity(actor: Actor) {
+		const {
+			rows: [retention],
+		} = await pool.query(
+			'select "activityRetentionDays" from instance_settings where id=$1',
+			["instance"],
+		);
+		return and(
+			eq(activity.ownerId, actor.userId),
+			gt(
+				activity.createdAt,
+				new Date(
+					Date.now() - (retention?.activityRetentionDays ?? 30) * 86400000,
+				),
+			),
+		);
+	}
+	function activityItem(e: typeof activity.$inferSelect) {
+		return {
+			id: e.id,
+			agent: e.agent,
+			connection: e.connection,
+			origin: activityOrigin(e.origin, e.agent),
+			method: e.method,
+			target: e.target,
+			outcome: e.outcome,
+			durationMs: e.durationMs,
+			createdAt: e.createdAt.toISOString(),
+		};
+	}
 	const services = {
 		...approvals.services,
 		...toolReview.services,
@@ -776,27 +807,10 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 				.from(grants)
 				.innerJoin(agents, eq(grants.agentId, agents.id))
 				.where(eq(agents.ownerId, actor.userId));
-			const {
-				rows: [retention],
-			} = await pool.query(
-				'select "activityRetentionDays" from instance_settings where id=$1',
-				["instance"],
-			);
 			const events = await db
 				.select()
 				.from(activity)
-				.where(
-					and(
-						eq(activity.ownerId, actor.userId),
-						gt(
-							activity.createdAt,
-							new Date(
-								Date.now() -
-									(retention?.activityRetentionDays ?? 30) * 86400000,
-							),
-						),
-					),
-				)
+				.where(await visibleActivity(actor))
 				.orderBy(desc(activity.createdAt))
 				.limit(100);
 			return {
@@ -835,18 +849,17 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					})
 					.from(allAgentGrants)
 					.where(eq(allAgentGrants.ownerId, actor.userId)),
-				activity: events.map((e) => ({
-					id: e.id,
-					agent: e.agent,
-					connection: e.connection,
-					origin: activityOrigin(e.origin, e.agent),
-					method: e.method,
-					target: e.target,
-					outcome: e.outcome,
-					durationMs: e.durationMs,
-					createdAt: e.createdAt.toISOString(),
-				})),
+				activity: events.map(activityItem),
 			};
+		},
+		async activityRequest(actor, id) {
+			await active(actor.userId);
+			const [event] = await db
+				.select()
+				.from(activity)
+				.where(and(eq(activity.id, id), await visibleActivity(actor)))
+				.limit(1);
+			return event ? activityItem(event) : null;
 		},
 		addConnection: (actor, input) => createConnection(actor, input),
 		async removeConnection(actor, id) {

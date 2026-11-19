@@ -70,6 +70,21 @@ const services = {
 		activity: [],
 		...extra,
 	}),
+	activityRequest: async (_actor: unknown, id: string) =>
+		id === "request"
+			? {
+					id,
+					agent: "Agent",
+					connection: "Connection",
+					origin: "agent" as const,
+					method: "tools/call",
+					target: null,
+					outcome: "forwarded",
+					durationMs: 1,
+					createdAt: "2026-11-19T00:00:00.000Z",
+					...extra,
+				}
+			: null,
 	addConnection: async () => ({
 		id: "connection",
 		label: "Connection",
@@ -200,6 +215,22 @@ describe("management response boundaries", () => {
 			result: {},
 			truncated: false,
 		});
+		expect(await client.activityRequest({ id: "request" })).toEqual({
+			id: "request",
+			agent: "Agent",
+			connection: "Connection",
+			origin: "agent",
+			method: "tools/call",
+			target: null,
+			outcome: "forwarded",
+			durationMs: 1,
+			createdAt: "2026-11-19T00:00:00.000Z",
+		});
+		expect(await client.activityRequest({ id: "other" })).toBeNull();
+		await expect(client.activityRequest({ id: "" })).rejects.toThrow();
+		await expect(
+			client.activityRequest({ id: "x".repeat(201) }),
+		).rejects.toThrow();
 		expect(await client.agentCatalog(catalog)).toEqual({ tools: [] });
 		expect(
 			await client.testTool({ ...catalog, name: "tool", arguments: {} }),

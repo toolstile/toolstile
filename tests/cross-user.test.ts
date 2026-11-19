@@ -260,6 +260,42 @@ describe.skipIf(!process.env.TEST_BASE_URL)(
 			await expect(call(intruder.client)).rejects.toThrow();
 		});
 
+		it("reads a linked activity row only for its owner, within retention", async () => {
+			const prefix = `linked-${randomUUID()}-`,
+				oldest = `${prefix}oldest`,
+				expired = `${prefix}expired`;
+			await runtime.pool.query(
+				`insert into activity(id,"ownerId",agent,connection,method,target,outcome,"durationMs","createdAt") select $2 || i,$1,'Owner agent','Owner connection','tools/call','echo','forwarded',i,now() - i * interval '1 minute' from generate_series(1,100) i`,
+				[owner.id, prefix],
+			);
+			await runtime.pool.query(
+				`insert into activity(id,"ownerId",agent,connection,method,target,outcome,"durationMs","createdAt") values($1,$3,'Owner agent','Owner connection','tools/call','echo','forwarded',7,now() - interval '200 minutes'),($2,$3,'Owner agent','Owner connection','tools/call','echo','forwarded',7,now() - interval '400 days')`,
+				[oldest, expired, owner.id],
+			);
+			const snapshot = await owner.client.snapshot();
+			expect(snapshot.activity.some((entry) => entry.id === oldest)).toBe(
+				false,
+			);
+			// Outside the newest 100, in the same shape as a snapshot row.
+			expect(await owner.client.activityRequest({ id: oldest })).toEqual({
+				id: oldest,
+				agent: "Owner agent",
+				connection: "Owner connection",
+				origin: "agent",
+				method: "tools/call",
+				target: "echo",
+				outcome: "forwarded",
+				durationMs: 7,
+				createdAt: expect.any(String),
+			});
+			// Another user's row, an expired row and an unknown id read alike.
+			expect(await intruder.client.activityRequest({ id: oldest })).toBeNull();
+			expect(await owner.client.activityRequest({ id: expired })).toBeNull();
+			expect(
+				await owner.client.activityRequest({ id: `${prefix}unknown` }),
+			).toBeNull();
+		});
+
 		it("leaves the owner's records unchanged", async () => {
 			const snapshot = await owner.client.snapshot();
 			expect(snapshot.devices.find((d) => d.id === mine.device)).toMatchObject({
