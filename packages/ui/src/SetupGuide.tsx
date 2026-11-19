@@ -656,7 +656,7 @@ export function SetupGuide({
 			? `${activeAgent.label} can use ${tools} on ${connection.label}.`
 			: "";
 	const accessSteps = activeAgent
-		? `On the Access page, check the tools ${activeAgent.label} may use, then select Save changes.`
+		? `On the Access page, allow the tools ${activeAgent.label} may use, then select Save changes.`
 		: "";
 	const agentName = activeAgent?.label ?? "your agent";
 	const firstCall = state.firstCall;
