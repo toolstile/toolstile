@@ -12,8 +12,9 @@ import {
 import { toolstileIconLinks } from "@toolstile/ui/brand";
 import { ToastViewport } from "@toolstile/ui/toast";
 
-// The dev stylesheet holds only the rules compiled before the page loaded. The StyleX
-// plugin's runtime refetches it when a lazily loaded route compiles more.
+// Vite warms every StyleX source at startup (vite.config.ts), so the dev stylesheet already
+// holds a page's rules. The StyleX plugin's runtime refetches it after edits, and when a page
+// loads before warmup finishes.
 if (import.meta.env.DEV && typeof document !== "undefined")
 	void import("virtual:stylex:runtime");
 
