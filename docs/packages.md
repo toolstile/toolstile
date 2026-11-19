@@ -17,6 +17,7 @@ oRPC contracts, routers and clients for the management API.
 | `./tool-review-contract`, `./tool-review-server` (server) | Tool definition review schemas and the PostgreSQL review store |
 | `./setup-contract`, `./setup-server` (server) | Guided setup state and its service/router |
 | `./agent-tools` (server) | Read-only built-in agent tools: catalog search and the agent's own access |
+| `./built-in-tools` | Names, titles and what each built-in agent tool can read, for display |
 | `./connectors`, `./connector-client` | Catalog entry schema, field building, display matching and client |
 | `./connector-server`, `./connector-logos` (both server) | Catalog service and router (preview and confirmed connect), operator OAuth clients and logo responses |
 | `./catalog-source`, `./catalog-snapshot` (server; the snapshot only in Vite-built code) | The fetched v1 catalog with its bundled fallback snapshot |
