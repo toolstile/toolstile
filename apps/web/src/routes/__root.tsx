@@ -11,6 +11,12 @@ import {
 } from "@toolstile/ui/appearance";
 import { toolstileIconLinks } from "@toolstile/ui/brand";
 import { ToastViewport } from "@toolstile/ui/toast";
+
+// The dev stylesheet holds only the rules compiled before the page loaded. The StyleX
+// plugin's runtime refetches it when a lazily loaded route compiles more.
+if (import.meta.env.DEV && typeof document !== "undefined")
+	void import("virtual:stylex:runtime");
+
 export const Route = createRootRoute({
 	head: () => ({
 		links: [

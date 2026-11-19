@@ -516,9 +516,27 @@ describe("guided setup card", () => {
 		expect(waitingCard).toContain(">Show prompt<");
 		expect(waitingCard).toContain(">Details<");
 		const doneCard = docked(called, () => undefined);
-		expect(doneCard).toContain(
-			"Claude Code called ask_wiki_question on deepwiki.com",
-		);
+		// The dock's two lines hold a short line; Details keeps the agent, connection and time.
+		const dockLine = (card: string) =>
+			card.match(/role="status" title="([^"]*)"/)?.[1];
+		expect(dockLine(doneCard)).toBe("First call received: ask_wiki_question");
+		expect(doneCard).not.toContain("Claude Code called");
+		expect(
+			dockLine(
+				docked({
+					...called,
+					firstCall: { ...called.firstCall, failed: true },
+				} as SetupState),
+			),
+		).toBe("First call failed: ask_wiki_question");
+		expect(
+			dockLine(
+				docked({
+					...called,
+					firstCall: { ...called.firstCall, target: null },
+				} as SetupState),
+			),
+		).toBe("First call received");
 		expect(doneCard).toContain(">View call<");
 		expect(doneCard).not.toContain(">Details<");
 		expect(waitingCard).toContain("Skip setup for now");

@@ -698,8 +698,10 @@ export function SetupGuide({
 		},
 	];
 	const callTime = firstCall ? formatTime(firstCall.createdAt) : "";
-	const callSummary = firstCall
-		? `${agentName} ${firstCall.target ? `called ${firstCall.target}` : "called a tool"}${connection ? ` on ${connection.label}` : ""}${firstCall.failed ? "; the call failed" : ""}`
+	// Like the access step, the dock keeps a short line for the call; Details names the agent,
+	// connection and time.
+	const callDockSummary = firstCall
+		? `${firstCall.failed ? "First call failed" : "First call received"}${firstCall.target ? `: ${firstCall.target}` : ""}`
 		: `Waiting for ${activeAgent ? `${activeAgent.label}'s` : "your agent's"} first call`;
 	const callMark = firstCall?.failed ? (
 		<WarningCircleIcon aria-hidden="true" {...stylex.props(s.bad)} />
@@ -1192,7 +1194,7 @@ export function SetupGuide({
 					? `Using ${activeAgent.label}`
 					: "Waiting for your agent to sign in"
 				: position === callPosition
-					? callSummary
+					? callDockSummary
 					: checking
 						? "Checking the permitted tools…"
 						: checkError
