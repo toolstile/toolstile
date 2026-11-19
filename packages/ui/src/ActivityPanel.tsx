@@ -189,23 +189,42 @@ export function ActivityPanel({
 	const filter = filters.find((item) => item.id === outcome) ?? filters[0];
 	const loaded =
 		!!view.request && data.activity.some((entry) => entry.id === view.request);
-	// Only recent requests are loaded; a linked older one is read on its own, once per id.
+	// Only recent requests are loaded; a linked older one is read on its own, once per client
+	// and id. The host replaces the client when the workspace changes, so an answer read for an
+	// earlier workspace is neither shown nor reused. Retry starts the read again.
 	const [linked, setLinked] = useState<{
+		api: ManagementClient;
 		id: string;
 		entry: Snapshot["activity"][number] | null;
+		failed: boolean;
 	}>();
-	const lookup = useRef<string | undefined>(undefined);
+	const [attempt, setAttempt] = useState(0);
+	const lookup = useRef<
+		{ api: ManagementClient; id: string; attempt: number } | undefined
+	>(undefined);
 	useEffect(() => {
 		const id = view.request;
-		if (!id || loaded || lookup.current === id) return;
-		lookup.current = id;
-		const settle = (entry: Snapshot["activity"][number] | null) => {
-			if (lookup.current === id) setLinked({ id, entry });
+		if (!id || loaded) return;
+		const last = lookup.current;
+		if (last && last.api === api && last.id === id && last.attempt === attempt)
+			return;
+		const mine = { api, id, attempt };
+		lookup.current = mine;
+		const settle = (
+			entry: Snapshot["activity"][number] | null,
+			failed: boolean,
+		) => {
+			if (lookup.current === mine) setLinked({ api, id, entry, failed });
 		};
-		api.activityRequest({ id }).then(settle, () => settle(null));
-	}, [api, view.request, loaded]);
+		api.activityRequest({ id }).then(
+			(entry) => settle(entry, false),
+			() => settle(null, true),
+		);
+	}, [api, view.request, loaded, attempt]);
 	const fetched =
-		!loaded && linked && linked.id === view.request ? linked : undefined;
+		!loaded && linked && linked.id === view.request && linked.api === api
+			? linked
+			: undefined;
 	const activity = fetched?.entry
 		? withEntry(data.activity, fetched.entry)
 		: data.activity;
@@ -214,6 +233,20 @@ export function ActivityPanel({
 		: undefined;
 	// The lookup answered that the caller cannot see the request, or it no longer exists.
 	const missing = !!fetched && !fetched.entry;
+	const linkNote = !missing ? null : fetched?.failed ? (
+		<span role="status" {...stylex.props(local.linkRetry)}>
+			The linked request could not be loaded.
+			<button
+				type="button"
+				{...stylex.props(local.textButton)}
+				onClick={() => setAttempt((value) => value + 1)}
+			>
+				Retry
+			</button>
+		</span>
+	) : (
+		<span role="status">The linked request is no longer available.</span>
+	);
 	// A linked request the dashboard made is shown with every source.
 	const source =
 		view.source === "all" || requested?.origin === "dashboard"
@@ -282,7 +315,7 @@ export function ActivityPanel({
 			) : null}
 			{/* With no rows to frame, the linked-request note stands above the empty state. */}
 			{tab === "requests" && !sourced.length && missing ? (
-				<p {...stylex.props(local.notice)}>{missingNote}</p>
+				<p {...stylex.props(local.notice)}>{linkNote}</p>
 			) : null}
 			{tab === "debug" && debug ? (
 				<DebugPanel
@@ -294,7 +327,14 @@ export function ActivityPanel({
 				/>
 			) : sourced.length ? (
 				<>
-					<ActivitySummary activity={sourced} />
+					{/* The summary describes the recent requests, not an older linked one. */}
+					<ActivitySummary
+						activity={
+							fetched?.entry
+								? sourced.filter((entry) => entry.id !== fetched.entry?.id)
+								: sourced
+						}
+					/>
 					<section aria-label="Requests" {...stylex.props(local.panel)}>
 						<div {...stylex.props(local.toolbar)}>
 							<nav aria-label="Source" {...stylex.props(local.filters)}>
@@ -584,7 +624,7 @@ export function ActivityPanel({
 						hidden ||
 						missing ? (
 							<div {...stylex.props(local.footnote)}>
-								{missing ? missingNote : null}
+								{linkNote}
 								{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
 									<span>
 										{matching.length === sourced.length
@@ -644,9 +684,6 @@ export function ActivityPanel({
 	);
 }
 
-const missingNote = (
-	<span role="status">The linked request is no longer available.</span>
-);
 /** The loaded requests with one more, kept newest first. */
 function withEntry(
 	activity: Snapshot["activity"],
@@ -788,6 +825,7 @@ const local = stylex.create({
 	// A request opened from a link: the selected-row tint the other record lists use.
 	rowCurrent: { backgroundColor: colors.actionTint },
 	// The hidden-rows note sits at the footer's end, apart from the count.
+	linkRetry: { display: "inline-flex", alignItems: "center", gap: space.s2 },
 	hidden: {
 		display: "inline-flex",
 		alignItems: "center",

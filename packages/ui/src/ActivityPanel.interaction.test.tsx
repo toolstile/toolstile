@@ -128,13 +128,49 @@ describe("activity panel linked request lookup", () => {
 		expect(container.querySelector('[role="status"]')?.textContent).toBe(note);
 		expect(current()).toBeNull();
 	});
-	it("treats a failed lookup as not found, also with no requests at all", async () => {
+	it("offers a retry when the lookup fails, also with no requests at all", async () => {
+		let offline = true;
 		const lookup = vi.fn(async () => {
-			throw new Error("offline");
+			if (offline) throw new Error("offline");
+			return null;
 		});
 		await mount([], { request: "gone" }, lookup);
 		expect(container.textContent).toContain("Go to connections");
+		expect(container.textContent).toContain(
+			"The linked request could not be loaded.",
+		);
+		expect(container.textContent).not.toContain(note);
+		offline = false;
+		const retry = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "Retry",
+		);
+		await act(async () => retry?.click());
+		expect(lookup).toHaveBeenCalledTimes(2);
 		expect(container.textContent).toContain(note);
+	});
+	it("reads again with the client of another workspace and drops the earlier answer", async () => {
+		const first = vi.fn(async () => null);
+		const second = vi.fn(async () => entry("old", 600));
+		const render = (activityRequest: ManagementClient["activityRequest"]) =>
+			act(async () =>
+				root?.render(
+					<ActivityPanel
+						data={snapshot([entry("a1", 1)])}
+						api={{ activityRequest } as unknown as ManagementClient}
+						view={{ request: "old" }}
+						onViewChange={() => undefined}
+						onNavigate={() => undefined}
+					/>,
+				),
+			);
+		container = document.createElement("div");
+		root = createRoot(container);
+		await render(first);
+		expect(container.textContent).toContain(note);
+		await render(second);
+		expect(second).toHaveBeenCalledTimes(1);
+		expect(container.textContent).not.toContain(note);
+		expect(current()).toContain("tool_old");
 	});
 	it("ignores an answer for a request that is no longer linked", async () => {
 		let answer: (value: Entry | null) => void = () => undefined;
