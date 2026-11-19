@@ -398,6 +398,68 @@ describe("guided setup waiting for the first call", () => {
 		completed: { ...verified.completed, call: true },
 		firstCall,
 	};
+	const dockedProps = (state: SetupState, api: SetupApi) => ({
+		state,
+		api,
+		data: agentSnapshot(),
+		endpoint: "https://toolstile.example/mcp",
+		variant: "docked" as const,
+		onState: () => undefined,
+		onDialog: () => undefined,
+		onConfigureAccess: () => undefined,
+		onDone: () => undefined,
+	});
+	const quietApi = (saveSetup: SetupApi["saveSetup"] = vi.fn()): SetupApi => ({
+		setupStatus: vi.fn(async () => called),
+		setupAgents: vi.fn(async () => ({ agentIds: [] })),
+		saveSetup,
+		verifySetup: vi.fn(),
+		setupFirstCall: vi.fn(async () => ({ firstCall: null })),
+	});
+	const skipButton = (container: HTMLElement) =>
+		container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Skip setup for now"]',
+		);
+	it("offers Skip again when Finish is rejected", async () => {
+		const saveSetup = vi.fn<SetupApi["saveSetup"]>(async () => {
+			throw new Error("Give access before finishing setup.");
+		});
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<SetupGuide {...dockedProps(called, quietApi(saveSetup))} />,
+			),
+		);
+		expect(skipButton(container)).toBeNull();
+		await act(async () =>
+			[...container.querySelectorAll("button")]
+				.find((element) => element.textContent?.startsWith("Finish"))
+				?.click(),
+		);
+		expect(saveSetup).toHaveBeenCalledTimes(1);
+		expect(container.textContent).toContain(
+			"Give access before finishing setup.",
+		);
+		expect(skipButton(container)).not.toBeNull();
+	});
+	it("moves focus from the dock's Skip to Finish when the first call arrives", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const api = quietApi();
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(verified, api)} />),
+		);
+		skipButton(container)?.focus();
+		expect(document.activeElement).toBe(skipButton(container));
+		await act(async () =>
+			root?.render(<SetupGuide {...dockedProps(called, api)} />),
+		);
+		expect(skipButton(container)).toBeNull();
+		expect(document.activeElement?.textContent).toMatch(/^Finish/);
+		container.remove();
+	});
 	it("polls for the first call, then refreshes progress and the dashboard", async () => {
 		vi.useFakeTimers();
 		let serverCall: typeof firstCall | null = null;

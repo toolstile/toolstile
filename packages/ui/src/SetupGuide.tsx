@@ -234,6 +234,8 @@ export function SetupGuide({
 	const fieldId = useId();
 	const panel = useRef<HTMLElement>(null);
 	const stepHeading = useRef<HTMLHeadingElement>(null);
+	/** The dock's main action: Finish once setup is complete. */
+	const dockAction = useRef<HTMLButtonElement>(null);
 	const { step, client, connectionId, agentId } = state;
 	const verified = state.completed.verify;
 	const position =
@@ -267,6 +269,9 @@ export function SetupGuide({
 		[checking, setChecking] = useState(false),
 		[error, setError] = useState(""),
 		[checkError, setCheckError] = useState("");
+	// Once every step is done there is nothing to skip, unless Finish was rejected (for example
+	// access changed elsewhere): then Skip stays the way out.
+	const showSkip = !complete || !!error;
 	useEffect(() => {
 		if (
 			previous.current.position !== position ||
@@ -280,8 +285,8 @@ export function SetupGuide({
 	useEffect(() => {
 		if (state.status === "active") setLeaving(false);
 	}, [state.status]);
-	// The prompt's copy button goes away when the first call arrives; focus that was on it
-	// moves to the step heading rather than to the page.
+	// The prompt's copy button and the Skip controls go away when the first call arrives; focus
+	// that was on them moves to the step heading or Finish rather than to the page.
 	const wasComplete = useRef(complete);
 	useEffect(() => {
 		if (
@@ -289,7 +294,10 @@ export function SetupGuide({
 			!wasComplete.current &&
 			document.activeElement === document.body
 		)
-			stepHeading.current?.focus({ preventScroll: true });
+			// The heading exists only with Details open; docked, Finish takes focus.
+			(stepHeading.current ?? dockAction.current)?.focus({
+				preventScroll: true,
+			});
 		wasComplete.current = complete;
 	}, [complete]);
 	// the step, collapse and dialog change which panel and content are measured.
@@ -752,8 +760,7 @@ export function SetupGuide({
 					</h3>
 				</div>
 				<div {...stylex.props(s.actions)}>
-					{/* Once every step is done, Finish closes the guide; there is nothing to skip. */}
-					{complete ? null : (
+					{showSkip ? (
 						<button
 							type="button"
 							{...stylex.props(controls.button, controls.quiet, controls.small)}
@@ -763,7 +770,7 @@ export function SetupGuide({
 						>
 							Skip
 						</button>
-					)}
+					) : null}
 					{inDialog ? (
 						<button
 							type="button"
@@ -1245,7 +1252,7 @@ export function SetupGuide({
 							<span {...stylex.props(layout.visuallyHidden)}>Step </span>
 							{position + 1} of {visibleSteps.length}
 						</span>
-						{complete ? null : (
+						{showSkip ? (
 							<button
 								type="button"
 								aria-label="Skip setup for now"
@@ -1256,7 +1263,7 @@ export function SetupGuide({
 							>
 								<XIcon size={14} aria-hidden="true" />
 							</button>
-						)}
+						) : null}
 					</div>
 					<div aria-hidden="true" {...stylex.props(s.segments)}>
 						{visibleSteps.map((entry, index) => (
@@ -1282,6 +1289,7 @@ export function SetupGuide({
 					</div>
 					<div {...stylex.props(s.dockActions)}>
 						<button
+							ref={dockAction}
 							type="button"
 							{...stylex.props(s.dockLink, complete && s.dockFinish)}
 							disabled={action.disabled}
