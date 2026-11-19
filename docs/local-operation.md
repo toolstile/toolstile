@@ -1,8 +1,31 @@
 # Local PGlite instance
 
-The source checkout uses [Vite+](https://viteplus.dev) (`vp`) with Node.js 24 (`.node-version` selects the latest installed 24) and pnpm 11.20.0; CI is verified on 24.17.0. PGlite embeds PostgreSQL in the Node process; this runtime needs no Docker, PostgreSQL server, Redis or hosted account. Local mode is tested on macOS arm64. Linux and Windows are not yet verified.
+A local instance runs the production server with PGlite, which embeds PostgreSQL in the server process: no Docker, PostgreSQL server, Redis or hosted account. Run it as the single executable `toolstile-server` or from a source checkout; both run the same commands on the same data directory. Local mode is tested on macOS arm64. Linux and Windows are not yet verified.
 
-From the repository root:
+## Single executable
+
+`toolstile-server` is a Node.js 26 single executable application: Node.js, the server, its static assets, PGlite's WebAssembly and the migrations in one file, with nothing else to install. Build it for the current platform from a source checkout (below):
+
+```sh
+vp run build:binary
+```
+
+This writes `dist/toolstile-server-<os>-<arch>` and its SHA-256 checksum. Install it on your `PATH` under the name `toolstile-server`, for example on macOS on Apple silicon:
+
+```sh
+mkdir -p ~/.local/bin
+install -m 755 dist/toolstile-server-darwin-arm64 ~/.local/bin/toolstile-server
+export PATH="$HOME/.local/bin:$PATH" # add this line to your shell profile to keep it
+toolstile-server init
+toolstile-server bootstrap you@example.com
+toolstile-server start
+```
+
+`toolstile-server version` prints the release it was built from. The commands and options are those of `node scripts/local.mjs` described below.
+
+## Source checkout
+
+The source checkout uses [Vite+](https://viteplus.dev) (`vp`) with Node.js 26 (`.node-version` selects the latest installed 26) and pnpm 11.20.0; CI is verified on 26.13.1. From the repository root:
 
 ```sh
 vp install --frozen-lockfile
@@ -41,7 +64,7 @@ If the proxy is on another machine, explicitly bind with `--listen <private-inte
 
 ## Upgrade, backup and restore
 
-Before upgrading, stop the instance and take a manual backup, then retain the exact old application commit alongside it. Backup requires the instance to be stopped. An ownership lock prevents another process from opening its PGlite directory. The backup command uses PGlite's data-directory archive. No scheduled backup service is installed.
+Before upgrading, stop the instance and take a manual backup, then retain the exact old executable or application commit alongside it. Backup requires the instance to be stopped. An ownership lock prevents another process from opening its PGlite directory. The backup command uses PGlite's data-directory archive. No scheduled backup service is installed.
 
 ```sh
 node scripts/local.mjs backup /safe/new-backup-directory --data-dir /srv/toolstile
@@ -49,7 +72,7 @@ node scripts/local.mjs backup /safe/new-backup-directory --data-dir /srv/toolsti
 
 The command refuses an existing destination. It copies the database and stable key/configuration, then writes checksums. Protect the backup as sensitive data: it contains both ciphertext and its decryption key. Losing the key makes stored credentials unrecoverable.
 
-Check out the selected newer source release, install its frozen dependencies, build it and start with the same data directory. Migrations are journaled and hash checked, serialize against concurrent migrations and do not reapply completed steps. A changed applied migration fails rather than silently altering history. Never edit an applied migration to make an upgrade succeed.
+Replace the executable with the newer release, or check out the newer source release, install its frozen dependencies and build it, then start with the same data directory. Migrations are journaled and hash checked, serialize against concurrent migrations and do not reapply completed steps. A changed applied migration fails rather than silently altering history. Never edit an applied migration to make an upgrade succeed.
 
 To restore, stop the old instance and use a new, absent target directory:
 
@@ -58,7 +81,7 @@ node scripts/local.mjs restore /safe/new-backup-directory --data-dir /srv/toolst
 node scripts/local.mjs start --data-dir /srv/toolstile-restored
 ```
 
-Restore verifies checksums, validates the saved configuration and opens the archived PostgreSQL cluster, and refuses to overwrite any existing instance. Start with the application release that created the backup before attempting another upgrade. Restoring an older snapshot discards later application writes; do not start both restored and original instances against the same public endpoint. Reverting source alone after a schema upgrade is not a database rollback. Retain the original directory until the restored service is verified, then retire it explicitly.
+Restore verifies checksums, validates the saved configuration and opens the archived PostgreSQL cluster, and refuses to overwrite any existing instance. Start with the application release that created the backup before attempting another upgrade. Restoring an older snapshot discards later application writes; do not start both restored and original instances against the same public endpoint. Reverting the executable or source alone after a schema upgrade is not a database rollback. Retain the original directory until the restored service is verified, then retire it explicitly.
 
 ## Verification status
 

@@ -1,7 +1,7 @@
-import { createHash, randomBytes } from "node:crypto";
 // The migration entry avoids bundling the embedded database into this command.
 import { migrateDatabaseWithLock } from "@toolstile/database/migrate";
 import pg from "pg";
+import { grantOperator, inviteUser } from "./admin-operations";
 
 const [command, email] = process.argv.slice(2);
 if (command === "validate") {
@@ -37,25 +37,14 @@ if (command === "validate") {
 			);
 			console.log("Migrations applied");
 		} else if (command === "bootstrap") {
-			if (!email?.includes("@"))
-				throw new Error("bootstrap requires an email address");
-			const origin = new URL(process.env.BETTER_AUTH_URL ?? "").origin;
-			const token = `ts_${randomBytes(32).toString("base64url")}`;
-			const digest = createHash("sha256").update(token).digest("hex");
-			await pool.query(
-				'insert into invitations(id,email,"expiresAt") values($1,$2,$3) on conflict(email) do update set id=excluded.id,"expiresAt"=excluded."expiresAt"',
-				[digest, email.toLowerCase(), new Date(Date.now() + 86400000)],
+			const link = await inviteUser(
+				pool,
+				email,
+				process.env.BETTER_AUTH_URL ?? "",
 			);
-			console.log(
-				`Invitation (valid 24 hours): ${origin}/api/auth/accept-invitation/${token}`,
-			);
+			console.log(`Invitation (valid 24 hours): ${link}`);
 		} else if (command === "operator") {
-			if (!email) throw new Error("operator requires an email address");
-			const result = await pool.query(
-				'insert into profiles("userId",operator) select id,true from "user" where email=$1 on conflict("userId") do update set operator=true returning "userId"',
-				[email.toLowerCase()],
-			);
-			if (!result.rowCount) throw new Error("Create the invited account first");
+			await grantOperator(pool, email);
 			console.log("Operator access granted to the selected account");
 		} else throw new Error("Unknown container command");
 	} finally {

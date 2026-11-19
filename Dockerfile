@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-FROM node:24.17.0-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS node
+FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 
 # Vite+ builds the application: its digest-pinned image provides vp, which installs the
 # pinned Node.js and the pnpm from packageManager. The image's vp user owns /app.
 FROM ghcr.io/voidzero-dev/vite-plus:1.5.1@sha256:068d824d8d8184c39defc266795d3ade452bfc5266603d25d81aeeedbedf8973 AS base
 # The image has no Git, so the install must not set up the Vite+ commit hooks.
-ENV VP_GIT_HOOKS=0 VP_NODE_VERSION=24.17.0
+ENV VP_GIT_HOOKS=0 VP_NODE_VERSION=26.13.1
 WORKDIR /app
 
 # Workspace manifests only, so the install stays cached across source-only changes.
@@ -19,7 +19,7 @@ COPY --from=manifests --chown=vp:vp /app ./
 RUN vp install --frozen-lockfile
 COPY --chown=vp:vp . .
 RUN vp run build
-RUN vp exec esbuild apps/web/scripts/container-admin.ts --bundle --platform=node --format=esm --target=node24 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile=commands/admin.mjs
+RUN vp exec esbuild apps/web/scripts/container-admin.ts --bundle --platform=node --format=esm --target=node26 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile=commands/admin.mjs
 
 FROM node AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 SERVER_SHUTDOWN_TIMEOUT=20

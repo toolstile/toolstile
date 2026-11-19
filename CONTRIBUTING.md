@@ -4,7 +4,7 @@ Report bugs and request features with [GitHub Issues](https://github.com/toolsti
 
 ## Setup
 
-Install [Vite+](https://viteplus.dev) (`vp`); it runs Node.js 24 and the pnpm version pinned in `package.json`. Use `vp install` and `vp run <script>` rather than calling pnpm directly. Development uses embedded PGlite (PostgreSQL in the Node process) and independent local keys; no external database or container runtime is required. Follow [development](docs/development.md) for task preparation, interactive startup and cleanup. For running a persistent standalone instance, follow [local operation](docs/local-operation.md).
+Install [Vite+](https://viteplus.dev) (`vp`); it runs Node.js 26 and the pnpm version pinned in `package.json`. Use `vp install` and `vp run <script>` rather than calling pnpm directly. Development uses embedded PGlite (PostgreSQL in the Node process) and independent local keys; no external database or container runtime is required. Follow [development](docs/development.md) for task preparation, interactive startup and cleanup. For running a persistent standalone instance, follow [local operation](docs/local-operation.md).
 
 ## Checks
 

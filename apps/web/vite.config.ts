@@ -22,6 +22,11 @@ export default defineConfig({
 			preset: "node-server",
 			plugins: ["./server/plugins/lifecycle.ts"],
 			traceDeps: ["@electric-sql/pglite*", "react*", "react-dom*"],
+			// The single executable has no public folder beside it, so its build embeds
+			// the static assets in the server bundle.
+			...(process.env.TOOLSTILE_INLINE_ASSETS === "1" && {
+				serveStatic: "inline" as const,
+			}),
 		}),
 		react(),
 	],

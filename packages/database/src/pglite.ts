@@ -1,8 +1,25 @@
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
+
+type Artifacts = Pick<
+	PGliteOptions,
+	"pgliteWasmModule" | "initdbWasmModule" | "fsBundle"
+>;
+// A global, not module state: the single-file server bundles the server output and
+// the local commands separately, so each carries its own copy of this module.
+const artifactsKey = Symbol.for("toolstile.pglite.artifacts");
+/** Supply PGlite's WASM modules and data bundle when they are not files beside the
+ * package, as in the single executable. */
+export function providePGliteArtifacts(artifacts: Artifacts) {
+	(globalThis as { [artifactsKey]?: Artifacts })[artifactsKey] = artifacts;
+}
 /** PGlite has one process owner. A second process must never open its data files. */
-export function ownedPGlite(directory: string, options: PGliteOptions = {}) {
+export function ownedPGlite(directory: string, configured: PGliteOptions = {}) {
+	const options = {
+		...(globalThis as { [artifactsKey]?: Artifacts })[artifactsKey],
+		...configured,
+	};
 	if (directory === ":memory:")
 		return { database: new PGlite("memory://", options), release: () => {} };
 	const path = resolve(directory);

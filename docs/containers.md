@@ -2,7 +2,7 @@
 
 This deploys the independent-user application, with one Node process and PostgreSQL 17. Each user's connections, credentials and agents remain isolated. Build the image from a reviewed source checkout; these instructions do not push it to any registry. Docker Engine with Compose v2 is required. Use an immutable image tag for each installation release, and retain the previous image.
 
-The multi-stage Dockerfile builds in the digest-pinned Vite+ image (`ghcr.io/voidzero-dev/vite-plus`), installs the frozen lockfile with `vp` on Node 24.17.0 and pnpm 11.20.0, and copies the complete standalone output, migrations and bundled administrative CLI into a non-root runtime. No source checkout, build tools or dotenv files are required at runtime. The image supports native PostgreSQL only; use [local operation](local-operation.md) for embedded PGlite. Never share a PGlite directory between containers.
+The multi-stage Dockerfile builds in the digest-pinned Vite+ image (`ghcr.io/voidzero-dev/vite-plus`), installs the frozen lockfile with `vp` on Node 26.13.1 and pnpm 11.20.0, and copies the complete standalone output, migrations and bundled administrative CLI into a non-root runtime. No source checkout, build tools or dotenv files are required at runtime. The image supports native PostgreSQL only; use [local operation](local-operation.md) for embedded PGlite. Never share a PGlite directory between containers.
 
 ## Install
 

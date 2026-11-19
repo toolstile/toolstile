@@ -12,17 +12,14 @@ import { join } from "node:path";
 import { openDatabase } from "../packages/database/src/index";
 import { ownedPGlite } from "../packages/database/src/pglite";
 
-const [command, backupDirectory, dataDirectory] = process.argv.slice(2);
-if (
-	!backupDirectory ||
-	!dataDirectory ||
-	!["backup", "restore"].includes(command)
-)
-	throw new Error("Invalid storage operation");
 const hash = (file: string) =>
 	createHash("sha256").update(readFileSync(file)).digest("hex");
 const files = ["pgdata.tar", "instance.json"];
-if (command === "backup") {
+/** Archive a stopped instance's database and keys into a new directory. */
+export async function backupInstance(
+	backupDirectory: string,
+	dataDirectory: string,
+) {
 	if (
 		!existsSync(join(dataDirectory, "pglite")) ||
 		!existsSync(join(dataDirectory, "instance.json"))
@@ -61,7 +58,13 @@ if (command === "backup") {
 	} finally {
 		await database.pool.end();
 	}
-} else {
+}
+
+/** Recreate an instance from a verified backup in a new, absent directory. */
+export async function restoreInstance(
+	backupDirectory: string,
+	dataDirectory: string,
+) {
 	const manifest = JSON.parse(
 		readFileSync(join(backupDirectory, "manifest.json"), "utf8"),
 	);
@@ -102,6 +105,3 @@ if (command === "backup") {
 		throw error;
 	}
 }
-console.log(
-	`${command} complete: ${command === "backup" ? backupDirectory : dataDirectory}`,
-);

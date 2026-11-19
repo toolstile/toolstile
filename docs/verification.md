@@ -4,7 +4,7 @@
 
 | Component | Version |
 | --- | --- |
-| Node.js | 24 LTS (`engines: >=24 <25`; `.node-version` selects 24; CI pins 24.17.0) |
+| Node.js | 26 LTS (`engines: >=26 <27`; `.node-version` selects 26; CI pins 26.13.1) |
 | Vite+ | `vp` 1.5 (`vite-plus` pins 1.5.1), running pnpm 11 (`packageManager` pins 11.20.0) |
 | PostgreSQL | Native PostgreSQL server adapter; embedded PGlite for local operation |
 | MCP SDK | `@modelcontextprotocol/client` and `server` 2.3.1 |
