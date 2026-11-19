@@ -43,8 +43,15 @@ const state = (patch: Partial<SetupState> = {}): SetupState => ({
 	step: "connect",
 	client: "claude-code",
 	connectionId: "c1",
-	completed: { connect: true, agent: false, access: false, verify: false },
+	completed: {
+		connect: true,
+		agent: false,
+		access: false,
+		verify: false,
+		call: false,
+	},
 	verifiedAt: null,
+	firstCall: null,
 	...patch,
 });
 const api = (): SetupApi => ({
@@ -52,8 +59,14 @@ const api = (): SetupApi => ({
 	setupAgents: vi.fn(async () => ({ agentIds: [] })),
 	saveSetup: vi.fn(),
 	verifySetup: vi.fn(),
+	setupFirstCall: vi.fn(async () => ({ firstCall: null })),
 });
-function render(setup: SetupState, data: Snapshot, setupApi = api()) {
+function render(
+	setup: SetupState,
+	data: Snapshot,
+	setupApi = api(),
+	props: { onViewCall?(id: string): void; firstCallNote?: string } = {},
+) {
 	return renderToStaticMarkup(
 		<SetupGuide
 			state={setup}
@@ -64,9 +77,52 @@ function render(setup: SetupState, data: Snapshot, setupApi = api()) {
 			onDialog={() => undefined}
 			onConfigureAccess={() => undefined}
 			onDone={() => undefined}
+			{...props}
 		/>,
 	);
 }
+const granted = () =>
+	snapshot({
+		agents: [agent("a", "Claude Code")],
+		grants: [
+			{
+				agentId: "a",
+				connectionId: "c1",
+				rules: {
+					...emptyRules(),
+					allow: { ...emptyRules().allow, tools: ["ask_wiki_question"] },
+				},
+			},
+		],
+	});
+const verified = (patch: Partial<SetupState> = {}) =>
+	state({
+		step: "verify",
+		agentId: "a",
+		completed: {
+			connect: true,
+			agent: true,
+			access: true,
+			verify: true,
+			call: false,
+		},
+		verifiedAt: "2026-10-28T00:00:00.000Z",
+		...patch,
+	});
+const called = verified({
+	completed: {
+		connect: true,
+		agent: true,
+		access: true,
+		verify: true,
+		call: true,
+	},
+	firstCall: {
+		id: "act-1",
+		target: "ask_wiki_question",
+		createdAt: "2026-10-28T00:01:00.000Z",
+	},
+});
 
 describe("automatic setup selections", () => {
 	it("selects the agent a token creates from step 2 and moves on to access", () => {
@@ -313,36 +369,122 @@ describe("guided setup card", () => {
 			),
 		);
 	});
-	it("shows the verified agent and tools and waits for Finish", () => {
+	it("asks for the first call once access is verified and keeps Finish disabled", () => {
 		const setupApi = api();
-		const html = render(
-			state({
-				step: "verify",
-				agentId: "a",
-				completed: { connect: true, agent: true, access: true, verify: true },
-				verifiedAt: "2026-10-28T00:00:00.000Z",
-			}),
-			snapshot({
-				agents: [agent("a", "My test")],
-				grants: [
-					{
-						agentId: "a",
-						connectionId: "c1",
-						rules: {
-							...emptyRules(),
-							allow: { ...emptyRules().allow, tools: ["ask_wiki_question"] },
-						},
-					},
-				],
-			}),
-			setupApi,
-		);
-		expect(html).toContain("Setup complete");
+		const html = render(verified(), granted(), setupApi, {
+			firstCallNote: "Host note.",
+		});
+		expect(html).toContain("Step 4 of 4 · Make your first call");
+		expect(html).not.toContain("Setup complete");
 		expect(html).toContain(
-			"My test can use 1 tool (ask_wiki_question) on deepwiki.com.",
+			"Claude Code can use 1 tool (ask_wiki_question) on deepwiki.com.",
+		);
+		expect(html).toContain(
+			"Restart Claude Code so it loads the Toolstile tools.",
+		);
+		expect(html).toContain(
+			"List the deepwiki.com tools you have through Toolstile, then call one that only reads data and show me what it returns.",
+		);
+		expect(html).toContain('aria-label="Copy prompt"');
+		expect(html).toContain(
+			"Waiting for Claude Code&#x27;s first tool call on deepwiki.com…",
+		);
+		expect(html).toContain("Host note.");
+		const waiting = html.match(
+			/<p id="([^"]+-waiting)"[^>]*>Waiting for the first call\.<\/p>/,
+		);
+		expect(waiting).not.toBeNull();
+		expect(html).toMatch(
+			new RegExp(
+				`<button type="button" disabled="" aria-describedby="${waiting?.[1]}">Finish`,
+			),
+		);
+		expect(html).not.toContain(">Back<");
+		expect(setupApi.saveSetup).not.toHaveBeenCalled();
+	});
+	it("names a token agent when its app is unknown", () => {
+		const data = granted();
+		data.agents[0].label = "Build server";
+		expect(render(verified(), data)).toContain(
+			"Restart Build server so it loads the Toolstile tools.",
+		);
+	});
+	it("falls back to step 3 while access is not verified", () => {
+		const html = render(
+			verified({
+				completed: {
+					connect: true,
+					agent: true,
+					access: true,
+					verify: false,
+					call: false,
+				},
+			}),
+			granted(),
+		);
+		expect(html).toContain("Step 3 of 4 · Give access");
+		expect(html).not.toContain("Make your first call");
+		expect(html).toContain(">Back<");
+	});
+	it("shows the first call and enables Finish", () => {
+		const html = render(called, granted());
+		expect(html).toContain("Setup complete");
+		expect(html).toContain("First call received.");
+		expect(html).toMatch(
+			/Claude Code called <code>ask_wiki_question<\/code> on deepwiki\.com at /,
 		);
 		expect(html).toMatch(/<button type="button">Finish/);
-		expect(setupApi.saveSetup).not.toHaveBeenCalled();
+		expect(html).not.toContain("View in Activity");
+		expect(html).toContain("Select Finish to close the guide.");
+	});
+	it("offers the call in Activity when the host can open it", () => {
+		const html = render(called, granted(), api(), {
+			onViewCall: () => undefined,
+		});
+		expect(html).toContain("View in Activity");
+	});
+	it("describes a first call without a tool name", () => {
+		const html = render(
+			{
+				...called,
+				firstCall: {
+					id: "act-1",
+					target: null,
+					createdAt: "2026-10-28T00:01:00.000Z",
+				},
+			},
+			granted(),
+		);
+		expect(html).toContain("Claude Code called a tool on deepwiki.com at ");
+	});
+	it("shows four steps in the docked card", () => {
+		const docked = (setup: SetupState, onViewCall?: (id: string) => void) =>
+			renderToStaticMarkup(
+				<SetupGuide
+					state={setup}
+					api={api()}
+					data={granted()}
+					endpoint="https://toolstile.example/mcp"
+					onState={() => undefined}
+					onDialog={() => undefined}
+					onConfigureAccess={() => undefined}
+					onDone={() => undefined}
+					onViewCall={onViewCall}
+					variant="docked"
+				/>,
+			);
+		const waitingCard = docked(verified());
+		expect(waitingCard).toContain("4 of 4");
+		expect(waitingCard).toContain("Waiting for Claude Code&#x27;s first call");
+		expect(waitingCard).toContain(">Show prompt<");
+		expect(waitingCard).toContain(">Details<");
+		const doneCard = docked(called, () => undefined);
+		expect(doneCard).toContain(
+			"Claude Code called ask_wiki_question on deepwiki.com",
+		);
+		expect(doneCard).toContain(">View call<");
+		expect(doneCard).not.toContain(">Details<");
+		expect(docked(called)).toContain(">Details<");
 	});
 });
 

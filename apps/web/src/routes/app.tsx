@@ -36,6 +36,10 @@ export const Route = createFileRoute("/app")({
 				approvalId: z.string().min(1).max(200).optional().catch(undefined),
 				// Tool reviews page: the connection under review.
 				connection: z.string().min(1).max(200).optional().catch(undefined),
+				// Activity page: `origin=all` includes the dashboard's own requests; `request` is
+				// the request a link opens.
+				origin: z.enum(["all"]).optional().catch(undefined),
+				request: z.string().min(1).max(200).optional().catch(undefined),
 			})
 			.parse(search),
 	beforeLoad: ({ location }) => {

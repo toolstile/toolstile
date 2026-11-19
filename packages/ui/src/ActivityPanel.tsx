@@ -5,7 +5,7 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import type { ManagementClient } from "@toolstile/api/client";
 import type { ActivityOutcomeFilter, Snapshot } from "@toolstile/api/contract";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { controls } from "./Control.styles";
 import { dashboardStyles as styles } from "./Dashboard.styles";
 import { DebugPanel } from "./DebugPanel";
@@ -21,6 +21,10 @@ export interface ActivityView {
 	outcome?: ActivityOutcomeFilter;
 	query?: string;
 	page?: number;
+	/** `all` also lists requests the dashboard made, such as checks; absent lists agents' only. */
+	source?: "all";
+	/** The request to show: its page opens and its row is marked and scrolled into view. */
+	request?: string;
 }
 const ACTIVITY_PAGE_SIZE = 25;
 /** Requests at or above this duration get a small amber dot. */
@@ -151,9 +155,16 @@ function ActivitySummary({ activity }: { activity: Snapshot["activity"] }) {
 	);
 }
 
+/** The source filter: agents' own requests, or those plus the dashboard's checks. */
+const sources = [
+	{ id: "agents", label: "Agents" },
+	{ id: "all", label: "All" },
+] as const;
+
 /**
- * Activity page: recent requests with outcome filter, search and pages, and debug capture in
- * its own tab. The view lives in the URL.
+ * Activity page: recent requests with source and outcome filters, search and pages, and debug
+ * capture in its own tab. The view lives in the URL. Requests the dashboard made, such as
+ * connection checks, are hidden unless the view asks for all sources.
  */
 export function ActivityPanel({
 	data,
@@ -176,7 +187,20 @@ export function ActivityPanel({
 	const query = view.query ?? "";
 	const needle = query.trim().toLowerCase();
 	const filter = filters.find((item) => item.id === outcome) ?? filters[0];
-	const matching = data.activity.filter(
+	const requested = view.request
+		? data.activity.find((entry) => entry.id === view.request)
+		: undefined;
+	// A linked request the dashboard made is shown with every source.
+	const source =
+		view.source === "all" || requested?.origin === "dashboard"
+			? "all"
+			: "agents";
+	const agentActivity = data.activity.filter(
+		(entry) => entry.origin !== "dashboard",
+	);
+	const sourced = source === "all" ? data.activity : agentActivity;
+	const hidden = data.activity.length - sourced.length;
+	const matching = sourced.filter(
 		(entry) =>
 			filter.matches(entry.outcome) &&
 			(!needle ||
@@ -185,12 +209,38 @@ export function ActivityPanel({
 				)),
 	);
 	const pages = Math.max(1, Math.ceil(matching.length / ACTIVITY_PAGE_SIZE));
-	const page = Math.min(view.page ?? 1, pages);
+	const requestedIndex = requested
+		? matching.findIndex((entry) => entry.id === requested.id)
+		: -1;
+	const page = Math.min(
+		view.page ??
+			(requestedIndex >= 0
+				? Math.floor(requestedIndex / ACTIVITY_PAGE_SIZE) + 1
+				: 1),
+		pages,
+	);
 	const rows = matching.slice(
 		(page - 1) * ACTIVITY_PAGE_SIZE,
 		page * ACTIVITY_PAGE_SIZE,
 	);
-	const listView = { outcome: view.outcome, query: view.query };
+	// Every change below leaves out `request`, so changing the view lets go of a linked request.
+	const sourceView = source === "all" ? ("all" as const) : undefined;
+	const listView = {
+		outcome: view.outcome,
+		query: view.query,
+		source: sourceView,
+	};
+	const showAll = () =>
+		onViewChange({ outcome: view.outcome, query: view.query, source: "all" });
+	// Bring a linked request into view once per request, when its row first renders.
+	const requestedRow = useRef<HTMLTableRowElement>(null);
+	const scrolledTo = useRef<string | undefined>(undefined);
+	useEffect(() => {
+		if (!view.request || scrolledTo.current === view.request) return;
+		if (!requestedRow.current) return;
+		scrolledTo.current = view.request;
+		requestedRow.current.scrollIntoView({ block: "center" });
+	});
 	return (
 		<div {...stylex.props(local.root)}>
 			{debug ? (
@@ -214,15 +264,52 @@ export function ActivityPanel({
 					selectedPayloadId={debug.selectedPayloadId}
 					onSelectPayload={debug.onSelectPayload}
 				/>
-			) : data.activity.length ? (
+			) : sourced.length ? (
 				<>
-					<ActivitySummary activity={data.activity} />
+					<ActivitySummary activity={sourced} />
 					<section aria-label="Requests" {...stylex.props(local.panel)}>
 						<div {...stylex.props(local.toolbar)}>
+							<nav aria-label="Source" {...stylex.props(local.filters)}>
+								{sources.map((item) => {
+									const selected = item.id === source;
+									const total =
+										item.id === "all"
+											? data.activity.length
+											: agentActivity.length;
+									return (
+										<button
+											key={item.id}
+											type="button"
+											aria-current={selected ? "page" : undefined}
+											{...stylex.props(
+												local.segment,
+												selected && local.segmentSelected,
+											)}
+											onClick={() =>
+												onViewChange({
+													outcome: view.outcome,
+													query: view.query,
+													source: item.id === "all" ? "all" : undefined,
+												})
+											}
+										>
+											{item.label}
+											<span
+												{...stylex.props(
+													local.segmentCount,
+													selected && local.segmentCountSelected,
+												)}
+											>
+												{total}
+											</span>
+										</button>
+									);
+								})}
+							</nav>
 							<nav aria-label="Outcome" {...stylex.props(local.filters)}>
 								{filters.map((item) => {
 									const selected = item.id === outcome;
-									const total = data.activity.filter((entry) =>
+									const total = sourced.filter((entry) =>
 										item.matches(entry.outcome),
 									).length;
 									return (
@@ -238,6 +325,7 @@ export function ActivityPanel({
 												onViewChange({
 													outcome: item.id === "all" ? undefined : item.id,
 													query: view.query,
+													source: sourceView,
 												})
 											}
 										>
@@ -274,6 +362,7 @@ export function ActivityPanel({
 											{
 												outcome: view.outcome,
 												query: event.target.value || undefined,
+												source: sourceView,
 											},
 											true,
 										)
@@ -337,6 +426,7 @@ export function ActivityPanel({
 											const newGroup =
 												index === 0 ||
 												group !== dayLabel(rows[index - 1].createdAt);
+											const current = e.id === requested?.id;
 											return (
 												<Fragment key={e.id}>
 													{newGroup ? (
@@ -350,7 +440,11 @@ export function ActivityPanel({
 															</th>
 														</tr>
 													) : null}
-													<tr>
+													<tr
+														ref={current ? requestedRow : undefined}
+														aria-current={current ? "true" : undefined}
+														{...stylex.props(current && local.rowCurrent)}
+													>
 														<td
 															{...stylex.props(
 																styles.tableCell,
@@ -460,15 +554,48 @@ export function ActivityPanel({
 								/>
 							</div>
 						) : null}
-						{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
-							<p {...stylex.props(local.footnote)}>
-								{matching.length === data.activity.length
-									? `Showing all ${data.activity.length.toLocaleString()} recent ${data.activity.length === 1 ? "request" : "requests"}`
-									: `Showing ${matching.length.toLocaleString()} of ${data.activity.length.toLocaleString()} recent requests`}
-							</p>
+						{(matching.length && matching.length <= ACTIVITY_PAGE_SIZE) ||
+						hidden ? (
+							<div {...stylex.props(local.footnote)}>
+								{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
+									<span>
+										{matching.length === sourced.length
+											? `Showing all ${sourced.length.toLocaleString()} recent ${sourced.length === 1 ? "request" : "requests"}`
+											: `Showing ${matching.length.toLocaleString()} of ${sourced.length.toLocaleString()} recent requests`}
+									</span>
+								) : null}
+								{hidden ? (
+									<span {...stylex.props(local.hidden)}>
+										{`${hidden.toLocaleString()} dashboard ${hidden === 1 ? "check" : "checks"} hidden`}
+										<button
+											type="button"
+											{...stylex.props(local.textButton)}
+											onClick={showAll}
+										>
+											Show all
+										</button>
+									</span>
+								) : null}
+							</div>
 						) : null}
 					</section>
 				</>
+			) : data.activity.length ? (
+				<EmptyState
+					icon={ClockCounterClockwiseIcon}
+					title="No agent has made a request yet"
+					action={
+						<button
+							{...stylex.props(controls.button)}
+							type="button"
+							onClick={showAll}
+						>
+							Show all
+						</button>
+					}
+				>
+					Requests the dashboard made, such as connection checks, are hidden.
+				</EmptyState>
 			) : (
 				<EmptyState
 					icon={ClockCounterClockwiseIcon}
@@ -615,6 +742,34 @@ const local = stylex.create({
 	// Slow requests (10 s or more) read in the warning colour, with no extra mark.
 	durationSlow: { color: colors.warning },
 	agent: { fontWeight: 500 },
+	// A request opened from a link: the selected-row tint the other record lists use.
+	rowCurrent: { backgroundColor: colors.actionTint },
+	// The hidden-rows note sits at the footer's end, apart from the count.
+	hidden: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: space.s2,
+		marginInlineStart: "auto",
+	},
+	textButton: {
+		minHeight: { default: 24, "@media (pointer: coarse)": 44 },
+		padding: 0,
+		borderWidth: 0,
+		backgroundColor: "transparent",
+		color: colors.action,
+		fontFamily: geometry.fontSans,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
+		fontWeight: 500,
+		textDecoration: {
+			default: "none",
+			":hover": "underline",
+			":focus-visible": "underline",
+		},
+		textUnderlineOffset: 3,
+		cursor: "pointer",
+		outline: "none",
+	},
 	colTime: { width: 104 },
 	colOutcome: { width: 168 },
 	colDuration: { width: 104 },
@@ -622,6 +777,8 @@ const local = stylex.create({
 	footnote: {
 		display: "flex",
 		alignItems: "center",
+		flexWrap: "wrap",
+		columnGap: space.s3,
 		margin: 0,
 		minHeight: 40,
 		paddingInline: { default: space.s4, [mobile]: space.s3 },

@@ -39,7 +39,9 @@ export const invitations = pgTable("invitations", {
 	// PostgreSQL UNIQUE keeps addressed invites unique and permits multiple NULL email-free invites.
 	email: text().unique(),
 	expiresAt: dateTime().notNull(),
-	createdAt: dateTime().notNull().default(sql`now()`),
+	createdAt: dateTime()
+		.notNull()
+		.default(sql`now()`),
 });
 export const authorizations = pgTable("authorizations", {
 	id: text().primaryKey(),
@@ -98,6 +100,10 @@ export const activity = pgTable(
 	(t) => [
 		index("activity_owner_created_at").on(t.ownerId, t.createdAt),
 		index("activity_created_at").on(t.createdAt),
+		// Setup's first agent tool call for an agent and connection.
+		index("activity_first_call")
+			.on(t.ownerId, t.agentId, t.connectionId, t.createdAt)
+			.where(sql`${t.origin} = 'agent' and ${t.method} = 'tools/call'`),
 	],
 );
 export const allAgentGrants = pgTable(
@@ -162,7 +168,9 @@ export const recoveryCodes = pgTable(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	},
 	(t) => [index("recovery_code_user").on(t.userId)],
 );
@@ -172,7 +180,9 @@ export const accountAudit = pgTable("account_audit", {
 	actor: text().notNull(),
 	action: text().notNull(),
 	reason: text(),
-	createdAt: dateTime().notNull().default(sql`now()`),
+	createdAt: dateTime()
+		.notNull()
+		.default(sql`now()`),
 });
 export const instanceSettings = pgTable("instance_settings", {
 	id: text().primaryKey(),
@@ -192,7 +202,9 @@ export const accountEmailOutbox = pgTable("account_email_outbox", {
 		.references(() => user.id, { onDelete: "cascade" }),
 	encryptedMessage: text().notNull(),
 	attempts: integer().notNull().default(0),
-	availableAt: dateTime().notNull().default(sql`now()`),
+	availableAt: dateTime()
+		.notNull()
+		.default(sql`now()`),
 	expiresAt: dateTime().notNull(),
 });
 export const debugSessions = pgTable(

@@ -14,6 +14,7 @@ vi.mock("@stylexjs/stylex", () => ({
 	props: () => ({}),
 }));
 
+import { emptyRules } from "./access-rules";
 import { SetupGuide, useSetupProgress } from "./SetupGuide";
 import type { SetupApi, SetupState } from "./setup-contract";
 
@@ -59,8 +60,15 @@ const waiting: SetupState = {
 	step: "agent",
 	client: "claude-code",
 	connectionId: "c1",
-	completed: { connect: true, agent: false, access: false, verify: false },
+	completed: {
+		connect: true,
+		agent: false,
+		access: false,
+		verify: false,
+		call: false,
+	},
 	verifiedAt: null,
+	firstCall: null,
 };
 
 let root: Root | undefined;
@@ -93,6 +101,7 @@ describe("guided setup waiting for an agent", () => {
 			setupAgents: vi.fn(async () => ({ agentIds: [] })),
 			saveSetup,
 			verifySetup: vi.fn(),
+			setupFirstCall: vi.fn(async () => ({ firstCall: null })),
 		};
 		const render = () =>
 			root?.render(
@@ -161,6 +170,7 @@ describe("guided setup waiting for an agent", () => {
 			setupAgents,
 			saveSetup,
 			verifySetup: vi.fn(),
+			setupFirstCall: vi.fn(async () => ({ firstCall: null })),
 		};
 		const render = () =>
 			root?.render(
@@ -240,6 +250,7 @@ describe("guided setup waiting for an agent", () => {
 				return next.promise;
 			}),
 			verifySetup: vi.fn(),
+			setupFirstCall: vi.fn(async () => ({ firstCall: null })),
 		};
 		let shown: SetupState | null = selected;
 		function Host() {
@@ -293,5 +304,190 @@ describe("guided setup waiting for an agent", () => {
 		expect(reloads).toHaveLength(1);
 		await act(async () => saves[2].resolve({ ...selected, status: "skipped" }));
 		expect(shown?.status).toBe("skipped");
+	});
+});
+
+describe("guided setup waiting for the first call", () => {
+	const agentSnapshot = () => {
+		const data = snapshot([signedIn]);
+		data.grants = [
+			{
+				agentId: "signed-in",
+				connectionId: "c1",
+				rules: { ...emptyRules(), full: true },
+			},
+		];
+		return data;
+	};
+	const verified: SetupState = {
+		...waiting,
+		step: "verify",
+		agentId: "signed-in",
+		completed: {
+			connect: true,
+			agent: true,
+			access: true,
+			verify: true,
+			call: false,
+		},
+		verifiedAt: "2026-10-28T00:00:00.000Z",
+	};
+	const firstCall = {
+		id: "act-1",
+		target: "ask_wiki_question",
+		createdAt: "2026-10-28T00:01:00.000Z",
+	};
+	const called: SetupState = {
+		...verified,
+		completed: { ...verified.completed, call: true },
+		firstCall,
+	};
+	it("polls for the first call, then refreshes progress and the dashboard", async () => {
+		vi.useFakeTimers();
+		let serverCall: typeof firstCall | null = null;
+		const setupFirstCall = vi.fn(async () => ({ firstCall: serverCall }));
+		const setupStatus = vi.fn(async () => called);
+		const saveSetup = vi.fn<SetupApi["saveSetup"]>();
+		const api: SetupApi = {
+			setupStatus,
+			setupAgents: vi.fn(async () => ({ agentIds: [] })),
+			saveSetup,
+			verifySetup: vi.fn(),
+			setupFirstCall,
+		};
+		// The host's reload carries progress read before the call: it must not undo it.
+		const reload = vi.fn(async () => undefined);
+		let shown: SetupState | null = verified;
+		let viewed: string | undefined;
+		function Host() {
+			const [setup, setSetup] = useState<SetupState | null>(verified);
+			const progress = useSetupProgress(setSetup);
+			shown = setup;
+			return setup ? (
+				<SetupGuide
+					state={setup}
+					api={api}
+					data={agentSnapshot()}
+					endpoint="https://toolstile.example/mcp"
+					reload={reload}
+					onState={progress.onState}
+					onDialog={() => undefined}
+					onConfigureAccess={() => undefined}
+					onDone={() => undefined}
+					onViewCall={(id) => {
+						viewed = id;
+					}}
+				/>
+			) : null;
+		}
+		const container = document.createElement("div");
+		root = createRoot(container);
+		await act(async () => root?.render(<Host />));
+		expect(container.textContent).toContain("Step 4 of 4");
+		const finish = () =>
+			[...container.querySelectorAll("button")].find((element) =>
+				element.textContent?.startsWith("Finish"),
+			);
+		expect(finish()?.disabled).toBe(true);
+		// No call yet: the poll asks every 4 seconds and changes nothing.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(8000);
+		});
+		expect(setupFirstCall).toHaveBeenCalledTimes(2);
+		expect(setupStatus).not.toHaveBeenCalled();
+		expect(reload).not.toHaveBeenCalled();
+		// The agent calls a tool; the next poll finds it.
+		serverCall = firstCall;
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(4000);
+		});
+		expect(setupStatus).toHaveBeenCalledTimes(1);
+		expect(reload).toHaveBeenCalledTimes(1);
+		expect(shown?.firstCall).toEqual(firstCall);
+		expect(container.textContent).toContain("Setup complete");
+		expect(container.textContent).toContain("First call received.");
+		expect(finish()?.disabled).toBe(false);
+		expect(saveSetup).not.toHaveBeenCalled();
+		// The poll stops once the call has arrived.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(20000);
+			window.dispatchEvent(new Event("focus"));
+		});
+		expect(setupFirstCall).toHaveBeenCalledTimes(3);
+		const view = [...container.querySelectorAll("button")].find((element) =>
+			element.textContent?.startsWith("View in Activity"),
+		);
+		await act(async () => view?.click());
+		expect(viewed).toBe("act-1");
+	});
+	it("checks again when the page returns to view", async () => {
+		vi.useFakeTimers();
+		const setupFirstCall = vi.fn(async () => ({ firstCall: null }));
+		const api: SetupApi = {
+			setupStatus: vi.fn(),
+			setupAgents: vi.fn(async () => ({ agentIds: [] })),
+			saveSetup: vi.fn(),
+			verifySetup: vi.fn(),
+			setupFirstCall,
+		};
+		root = createRoot(document.createElement("div"));
+		await act(async () =>
+			root?.render(
+				<SetupGuide
+					state={verified}
+					api={api}
+					data={agentSnapshot()}
+					endpoint="https://toolstile.example/mcp"
+					onState={() => undefined}
+					onDialog={() => undefined}
+					onConfigureAccess={() => undefined}
+					onDone={() => undefined}
+				/>,
+			),
+		);
+		expect(setupFirstCall).not.toHaveBeenCalled();
+		await act(async () => window.dispatchEvent(new Event("focus")));
+		expect(setupFirstCall).toHaveBeenCalledTimes(1);
+	});
+	it("returns to step 3 and checks again when verification lapses", async () => {
+		const verifySetup = vi.fn<SetupApi["verifySetup"]>(async () => verified);
+		const setupFirstCall = vi.fn(async () => ({ firstCall: null }));
+		const api: SetupApi = {
+			setupStatus: vi.fn(),
+			setupAgents: vi.fn(async () => ({ agentIds: [] })),
+			saveSetup: vi.fn(),
+			verifySetup,
+			setupFirstCall,
+		};
+		let state: SetupState = {
+			...verified,
+			completed: { ...verified.completed, verify: false },
+		};
+		const container = document.createElement("div");
+		root = createRoot(container);
+		const render = () =>
+			root?.render(
+				<SetupGuide
+					state={state}
+					api={api}
+					data={agentSnapshot()}
+					endpoint="https://toolstile.example/mcp"
+					onState={(next) => {
+						state = next;
+						render();
+					}}
+					onDialog={() => undefined}
+					onConfigureAccess={() => undefined}
+					onDone={() => undefined}
+				/>,
+			);
+		await act(async () => render());
+		expect(verifySetup).toHaveBeenCalledWith({
+			connectionId: "c1",
+			agentId: "signed-in",
+		});
+		await act(async () => undefined);
+		expect(state.completed.verify).toBe(true);
+		expect(container.textContent).toContain("Step 4 of 4");
 	});
 });

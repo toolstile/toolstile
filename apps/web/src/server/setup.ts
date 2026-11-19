@@ -23,6 +23,20 @@ function adapt(deps: Dependencies): SetupDependencies {
 			);
 			return rows[0];
 		},
+		// Callers have already authorized the actor (snapshot or read); served by the
+		// partial "activity_first_call" index.
+		async firstCall(actor, input) {
+			const { rows } = await deps.pool.query<{
+				id: string;
+				target: string | null;
+				createdAt: Date | string;
+			}>(
+				`SELECT id,target,"createdAt" FROM activity WHERE "ownerId"=$1 AND "agentId"=$2 AND "connectionId"=$3 AND origin='agent' AND method='tools/call' AND outcome='forwarded' ORDER BY "createdAt",id LIMIT 1`,
+				[actor.userId, input.agentId, input.connectionId],
+			);
+			const row = rows[0];
+			return row && { ...row, createdAt: new Date(row.createdAt) };
+		},
 		async persist(actor, row) {
 			await deps.authorize(actor);
 			await deps.pool.query(

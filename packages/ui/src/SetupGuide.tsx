@@ -13,7 +13,12 @@ import type { DashboardDialog, Snapshot } from "@toolstile/api/contract";
 import { SelectField } from "@toolstile/ui/select";
 import { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AgentSteps } from "./AgentSteps";
-import { agentApp, agentApps } from "./agent-clients";
+import {
+	agentApp,
+	agentApps,
+	agentClientLabels,
+	detectAgentClient,
+} from "./agent-clients";
 import { controls } from "./Control.styles";
 import { layout } from "./Layout.styles";
 import { ModalFrame } from "./ModalFrame";
@@ -36,12 +41,22 @@ import {
 	typeScale,
 } from "./tokens.stylex";
 
-// Persisted steps stay connect | agent | access | verify; access and verify share the last visible step.
+/**
+ * Persisted steps stay connect | agent | access | verify. Access and verify share step 3 until
+ * the server reports the access verified; then the guide shows step 4, which waits for the
+ * agent's first tool call. That call is read from activity, never saved as a step, and Finish
+ * waits for it. If verification lapses, the guide returns to step 3 and checks again.
+ */
 const visibleSteps = [
 	{ step: "connect", title: "Add an MCP connection" },
 	{ step: "agent", title: "Connect your agent" },
 	{ step: "access", title: "Give access" },
+	{ step: "verify", title: "Make your first call" },
 ] as const;
+/** The step that waits for the first call; it is shown only once access is verified. */
+const callPosition = 3;
+/** How often step 4 asks whether the first call has arrived, while the page is visible. */
+const firstCallPollMs = 4000;
 type SetupNavigation = {
 	setupStep?: SetupStep;
 	setupClient?: SetupClient;
@@ -171,6 +186,8 @@ export function SetupGuide({
 	onDone,
 	canConfigureAccess = true,
 	verificationNote,
+	firstCallNote,
+	onViewCall,
 	reload,
 	clientDocs,
 	variant = "inline",
@@ -189,10 +206,15 @@ export function SetupGuide({
 	onDone(): void;
 	canConfigureAccess?: boolean;
 	verificationNote?: string;
+	/** The host's own sentence under step 4's waiting status. */
+	firstCallNote?: string;
+	/** Opens the activity log at this request; step 4 offers it once the first call arrives. */
+	onViewCall?(activityId: string): void;
 	/**
 	 * Reloads the dashboard snapshot. An agent signs in through its own consent page, so while
 	 * step 2 is open the guide reloads on focus, and while visible checks `setupAgents` every few
-	 * seconds, reloading when a new agent appears.
+	 * seconds, reloading when a new agent appears. Step 4 checks `setupFirstCall` the same way and
+	 * reloads once the first call arrives.
 	 */
 	reload?(): Promise<void>;
 	/** The host's own agent app guide; each app links to `#<client>` on it before the vendor's page. */
@@ -204,10 +226,15 @@ export function SetupGuide({
 	const panel = useRef<HTMLElement>(null);
 	const stepHeading = useRef<HTMLHeadingElement>(null);
 	const { step, client, connectionId, agentId } = state;
+	const verified = state.completed.verify;
 	const position =
-		step === "verify"
-			? 2
+		step === "access" || step === "verify"
+			? verified
+				? callPosition
+				: 2
 			: visibleSteps.findIndex((entry) => entry.step === step);
+	/** The first call has arrived on step 4, so Finish is available. */
+	const complete = position === callPosition && !!state.firstCall;
 	const previous = useRef({ position, status: state.status });
 	const automatic = useRef({ selection: "", verification: "" });
 	const [collapsed, setCollapsed] = useState(false);
@@ -244,6 +271,18 @@ export function SetupGuide({
 	useEffect(() => {
 		if (state.status === "active") setLeaving(false);
 	}, [state.status]);
+	// The prompt's copy button goes away when the first call arrives; focus that was on it
+	// moves to the step heading rather than to the page.
+	const wasComplete = useRef(complete);
+	useEffect(() => {
+		if (
+			complete &&
+			!wasComplete.current &&
+			document.activeElement === document.body
+		)
+			stepHeading.current?.focus({ preventScroll: true });
+		wasComplete.current = complete;
+	}, [complete]);
 	// the step, collapse and dialog change which panel and content are measured.
 	useEffect(() => {
 		const element = panel.current;
@@ -281,7 +320,6 @@ export function SetupGuide({
 			(grant) => grant.connectionId === connectionId,
 		),
 	].map((grant) => grant.rules);
-	const verified = state.completed.verify;
 	// Step 2 also offers to connect another agent while one is selected, so it keeps reloading
 	// until the step ends; only an agent that is new to step 2 moves it on.
 	const waitingForAgent = state.status === "active" && position === 1;
@@ -345,8 +383,60 @@ export function SetupGuide({
 			document.removeEventListener("visibilitychange", visibility);
 		};
 	}, [waitingForAgent]);
-	// Celebrate only a verification that happens while the guide is open, not one restored on load.
+	const waitingForCall =
+		state.status === "active" && position === callPosition && !state.firstCall;
+	const reportState = useRef(onState);
+	reportState.current = onState;
+	useEffect(() => {
+		if (!waitingForCall) return;
+		// One request at a time, only while the page is visible, and never while the guide saves.
+		// The interval and returning to the page ask only whether the first call exists; once it
+		// does, the guide reads its full progress and the host reloads the dashboard, so activity
+		// and plan usage show the call too. The poll never saves setup progress.
+		let inFlight = false;
+		let timer: ReturnType<typeof setInterval> | undefined;
+		const check = () => {
+			if (inFlight || saving.current || document.visibilityState === "hidden")
+				return;
+			inFlight = true;
+			setupApi.current
+				.setupFirstCall()
+				.then(async ({ firstCall }) => {
+					if (!firstCall || saving.current) return;
+					// Progress first: it counts as the guide's own update, so a dashboard reload that
+					// started earlier cannot bring back progress without the call.
+					reportState.current(await setupApi.current.setupStatus());
+					await reloadSnapshot.current?.();
+				})
+				.catch(() => undefined)
+				.finally(() => {
+					inFlight = false;
+				});
+		};
+		const schedule = () => {
+			clearInterval(timer);
+			timer =
+				document.visibilityState === "hidden"
+					? undefined
+					: setInterval(check, firstCallPollMs);
+		};
+		const visibility = () => {
+			schedule();
+			check();
+		};
+		schedule();
+		window.addEventListener("focus", check);
+		document.addEventListener("visibilitychange", visibility);
+		return () => {
+			clearInterval(timer);
+			window.removeEventListener("focus", check);
+			document.removeEventListener("visibilitychange", visibility);
+		};
+	}, [waitingForCall]);
+	// Celebrate only a verification or first call that happens while the guide is open, not one
+	// restored on load.
 	const verifiedOnMount = useRef(verified);
+	const calledOnMount = useRef(!!state.firstCall);
 	async function run(work: () => Promise<void>, report = setError) {
 		if (busy) return;
 		setBusy(true);
@@ -546,6 +636,38 @@ export function SetupGuide({
 	const accessSteps = activeAgent
 		? `On the Access page, check the tools ${activeAgent.label} may use, then select Save changes.`
 		: "";
+	const agentName = activeAgent?.label ?? "your agent";
+	const firstCall = state.firstCall;
+	// The app to restart: the one the agent's name comes from, else the agent itself, such as a
+	// token agent whose app the guide does not know.
+	const detectedApp = activeAgent
+		? detectAgentClient(activeAgent.label)
+		: undefined;
+	const appName = detectedApp ? agentClientLabels[detectedApp] : agentName;
+	const callSteps = [
+		{ text: `Restart ${appName} so it loads the Toolstile tools.` },
+		{
+			text: "Paste this prompt:",
+			code: `List the ${connection ? `${connection.label} ` : ""}tools you have through Toolstile, then call one that only reads data and show me what it returns.`,
+			codeKind: "prompt",
+		},
+	];
+	const callTime = firstCall ? formatTime(firstCall.createdAt) : "";
+	const callSummary = firstCall
+		? `${agentName} ${firstCall.target ? `called ${firstCall.target}` : "called a tool"}${connection ? ` on ${connection.label}` : ""}`
+		: `Waiting for ${activeAgent ? `${activeAgent.label}'s` : "your agent's"} first call`;
+	const callMark = calledOnMount.current ? (
+		<CheckCircleIcon aria-hidden="true" {...stylex.props(s.good)} />
+	) : (
+		<VerifiedCheck />
+	);
+	const viewCall =
+		firstCall && onViewCall
+			? () => {
+					setDetailsOpen(false);
+					onViewCall(firstCall.id);
+				}
+			: undefined;
 	// Why the footer's next action is unavailable, shown beside it.
 	const waiting =
 		position === 0
@@ -558,15 +680,17 @@ export function SetupGuide({
 				? activeAgent
 					? ""
 					: "Waiting for your agent to sign in."
-				: verified
-					? ""
+				: position === callPosition
+					? complete
+						? ""
+						: "Waiting for the first call."
 					: checking
 						? "Waiting for the check."
 						: checkError
-							? "Retry the check to finish."
+							? "Retry the check to continue."
 							: !state.completed.access
 								? canConfigureAccess
-									? "Give access to finish."
+									? "Give access to continue."
 									: "Waiting for an administrator to give access."
 								: "Waiting for the check.";
 	const card = (inDialog: boolean) => (
@@ -594,9 +718,9 @@ export function SetupGuide({
 						data-autofocus={inDialog || undefined}
 						{...stylex.props(s.progress)}
 					>
-						{verified && position === 2
+						{complete
 							? "Setup complete"
-							: `Step ${position + 1} of 3 · ${target.title}`}
+							: `Step ${position + 1} of ${visibleSteps.length} · ${target.title}`}
 					</h3>
 				</div>
 				<div {...stylex.props(s.actions)}>
@@ -813,33 +937,31 @@ export function SetupGuide({
 					)}
 					{position === 2 && (
 						<>
-							{verified ? null : (
-								<div {...stylex.props(s.row, s.start)}>
-									<p {...stylex.props(s.text)}>
-										{activeAgent && connection ? (
-											<>
-												Allow <strong>{activeAgent.label}</strong> to use{" "}
-												<strong>{connection.label}</strong>.
-											</>
-										) : (
-											"Choose an MCP connection and an agent in the earlier steps first."
-										)}
-									</p>
-									{canConfigureAccess && (
-										<button
-											type="button"
-											{...stylex.props(
-												controls.button,
-												!state.completed.access && controls.primary,
-											)}
-											disabled={!activeAgent || !connection || busy}
-											onClick={configureAccess}
-										>
-											Configure access
-										</button>
+							<div {...stylex.props(s.row, s.start)}>
+								<p {...stylex.props(s.text)}>
+									{activeAgent && connection ? (
+										<>
+											Allow <strong>{activeAgent.label}</strong> to use{" "}
+											<strong>{connection.label}</strong>.
+										</>
+									) : (
+										"Choose an MCP connection and an agent in the earlier steps first."
 									)}
-								</div>
-							)}
+								</p>
+								{canConfigureAccess && (
+									<button
+										type="button"
+										{...stylex.props(
+											controls.button,
+											!state.completed.access && controls.primary,
+										)}
+										disabled={!activeAgent || !connection || busy}
+										onClick={configureAccess}
+									>
+										Configure access
+									</button>
+								)}
+							</div>
 							{accessHint && !state.completed.access && accessSteps ? (
 								<p {...stylex.props(s.text)}>{accessSteps}</p>
 							) : null}
@@ -849,21 +971,7 @@ export function SetupGuide({
 								</p>
 							)}
 							<div role="status" {...stylex.props(s.text)}>
-								{verified ? (
-									<span {...stylex.props(s.inline)}>
-										{verifiedOnMount.current ? (
-											<CheckCircleIcon
-												aria-hidden="true"
-												{...stylex.props(s.good)}
-											/>
-										) : (
-											<VerifiedCheck />
-										)}
-										<span>
-											<strong>Your agent is connected.</strong> {success}
-										</span>
-									</span>
-								) : checking ? (
+								{checking ? (
 									<span {...stylex.props(s.inline)}>
 										<span aria-hidden="true" {...stylex.props(s.spinner)} />
 										{activeAgent && connection
@@ -885,19 +993,84 @@ export function SetupGuide({
 									</span>
 								) : null}
 							</div>
-							{verified ? (
+							{verificationNote ? (
+								<p {...stylex.props(s.muted)}>{verificationNote}</p>
+							) : null}
+						</>
+					)}
+					{position === callPosition && (
+						<>
+							{complete ? null : (
+								<p {...stylex.props(s.text)}>
+									<span {...stylex.props(s.inline)}>
+										{verifiedOnMount.current ? (
+											<CheckCircleIcon
+												aria-hidden="true"
+												{...stylex.props(s.good)}
+											/>
+										) : (
+											<VerifiedCheck />
+										)}
+										<span>
+											<strong>Your agent is connected.</strong> {success}
+										</span>
+									</span>
+								</p>
+							)}
+							{complete ? null : <AgentSteps steps={callSteps} />}
+							{/* One status region for both states, so the call's arrival is announced. */}
+							<div role="status" {...stylex.props(s.text)}>
+								{complete && firstCall ? (
+									<span {...stylex.props(s.inline)}>
+										{callMark}
+										<span>
+											<strong>First call received.</strong> {agentName}{" "}
+											{firstCall.target ? (
+												<>
+													called{" "}
+													<code {...stylex.props(s.code)}>
+														{firstCall.target}
+													</code>
+												</>
+											) : (
+												"called a tool"
+											)}
+											{connection ? ` on ${connection.label}` : ""}
+											{callTime ? ` at ${callTime}` : ""}.
+										</span>
+									</span>
+								) : (
+									<span {...stylex.props(s.inline)}>
+										<span aria-hidden="true" {...stylex.props(s.spinner)} />
+										{`Waiting for ${activeAgent ? `${activeAgent.label}'s` : "your agent's"} first tool call${connection ? ` on ${connection.label}` : ""}…`}
+									</span>
+								)}
+							</div>
+							{!complete && firstCallNote ? (
+								<p {...stylex.props(s.muted)}>{firstCallNote}</p>
+							) : null}
+							{complete && viewCall ? (
+								<div {...stylex.props(s.row, s.start)}>
+									<button
+										type="button"
+										{...stylex.props(controls.button, controls.small)}
+										onClick={viewCall}
+									>
+										View in Activity <ArrowRightIcon aria-hidden="true" />
+									</button>
+								</div>
+							) : null}
+							{complete ? (
 								<p {...stylex.props(s.muted)}>
 									Select Finish to close the guide. You can change access at any
 									time on the Access page.
 								</p>
-							) : verificationNote ? (
-								<p {...stylex.props(s.muted)}>{verificationNote}</p>
 							) : null}
 						</>
 					)}
 				</div>
 				<footer {...stylex.props(s.footer, moreBelow && s.footerRaised)}>
-					{position > 0 && !(position === 2 && verified) && (
+					{position > 0 && position < callPosition && (
 						<button
 							type="button"
 							{...stylex.props(controls.button, controls.quiet, s.back)}
@@ -922,11 +1095,11 @@ export function SetupGuide({
 							{waiting}
 						</p>
 					) : null}
-					{position === 2 ? (
+					{position === callPosition ? (
 						<button
 							type="button"
 							{...stylex.props(controls.button, controls.primary)}
-							disabled={busy || !verified}
+							disabled={busy || !complete}
 							aria-describedby={waiting ? `${fieldId}-waiting` : undefined}
 							onClick={finish}
 						>
@@ -952,11 +1125,6 @@ export function SetupGuide({
 		</section>
 	);
 	if (!docked) return card(false);
-	const verifiedMark = verifiedOnMount.current ? (
-		<CheckCircleIcon aria-hidden="true" {...stylex.props(s.good)} />
-	) : (
-		<VerifiedCheck />
-	);
 	const openDetails = () => setDetailsOpen(true);
 	const summary =
 		position === 0
@@ -971,8 +1139,8 @@ export function SetupGuide({
 				? activeAgent
 					? `Using ${activeAgent.label}`
 					: "Waiting for your agent to sign in"
-				: verified
-					? success || `Connected: ${tools}`
+				: position === callPosition
+					? callSummary
 					: checking
 						? "Checking the permitted tools…"
 						: checkError
@@ -1007,8 +1175,10 @@ export function SetupGuide({
 				? activeAgent
 					? { label: "Continue", arrow: true, disabled: busy, onClick: next }
 					: { label: "Show steps", onClick: openDetails }
-				: verified
-					? { label: "Finish", disabled: busy, onClick: finish }
+				: position === callPosition
+					? complete
+						? { label: "Finish", disabled: busy, onClick: finish }
+						: { label: "Show prompt", onClick: openDetails }
 					: canConfigureAccess && !state.completed.access
 						? {
 								label: "Configure access",
@@ -1039,7 +1209,7 @@ export function SetupGuide({
 						</button>
 						<span {...stylex.props(s.dockCount)}>
 							<span {...stylex.props(layout.visuallyHidden)}>Step </span>
-							{position + 1} of 3
+							{position + 1} of {visibleSteps.length}
 						</span>
 						<button
 							type="button"
@@ -1058,29 +1228,26 @@ export function SetupGuide({
 								key={entry.step}
 								{...stylex.props(
 									s.segment,
-									(index < position || (index === 2 && verified)) &&
+									(index < position || (index === position && complete)) &&
 										s.segmentDone,
-									index === position && !verified && s.segmentCurrent,
+									index === position && !complete && s.segmentCurrent,
 								)}
 							/>
 						))}
 					</div>
 					<div {...stylex.props(s.dockBody)}>
 						<p {...stylex.props(s.dockStep)}>
-							{position === 2 && verified ? "Setup complete" : target.title}
+							{complete ? "Setup complete" : target.title}
 						</p>
 						<p role="status" title={summary} {...stylex.props(s.dockSummary)}>
-							{position === 2 && verified ? verifiedMark : null}
+							{complete ? callMark : null}
 							<span {...stylex.props(s.clamp)}>{summary}</span>
 						</p>
 					</div>
 					<div {...stylex.props(s.dockActions)}>
 						<button
 							type="button"
-							{...stylex.props(
-								s.dockLink,
-								position === 2 && verified && s.dockFinish,
-							)}
+							{...stylex.props(s.dockLink, complete && s.dockFinish)}
 							disabled={action.disabled}
 							onClick={action.onClick}
 						>
@@ -1089,14 +1256,24 @@ export function SetupGuide({
 								<ArrowRightIcon size={14} aria-hidden="true" />
 							) : null}
 						</button>
-						<button
-							type="button"
-							aria-haspopup="dialog"
-							{...stylex.props(s.dockDetails)}
-							onClick={openDetails}
-						>
-							Details
-						</button>
+						{complete && viewCall ? (
+							<button
+								type="button"
+								{...stylex.props(s.dockDetails)}
+								onClick={viewCall}
+							>
+								View call
+							</button>
+						) : (
+							<button
+								type="button"
+								aria-haspopup="dialog"
+								{...stylex.props(s.dockDetails)}
+								onClick={openDetails}
+							>
+								Details
+							</button>
+						)}
 					</div>
 					{error && (
 						<p role="alert" {...stylex.props(s.error, s.dockError)}>
@@ -1109,15 +1286,15 @@ export function SetupGuide({
 					aria-haspopup="dialog"
 					title={
 						rail
-							? verified
+							? complete
 								? "Setup complete: finish setup"
-								: `Setup, step ${position + 1} of 3`
+								: `Setup, step ${position + 1} of ${visibleSteps.length}`
 							: undefined
 					}
 					{...stylex.props(s.pill, rail && s.pillRail)}
 					onClick={openDetails}
 				>
-					{verified && position === 2 ? (
+					{complete ? (
 						<CheckCircleIcon
 							size={16}
 							aria-hidden="true"
@@ -1126,14 +1303,16 @@ export function SetupGuide({
 					) : (
 						<ListChecksIcon size={16} aria-hidden="true" />
 					)}
-					{verified && position === 2 ? (
+					{complete ? (
 						<span {...stylex.props(rail && s.pillWordRail)}>Finish setup</span>
 					) : (
 						<>
 							<span {...stylex.props(s.pillWord, rail && s.pillWordRail)}>
 								Setup{" "}
 							</span>
-							{rail ? `${position + 1}/3` : `${position + 1} of 3`}
+							{rail
+								? `${position + 1}/${visibleSteps.length}`
+								: `${position + 1} of ${visibleSteps.length}`}
 						</>
 					)}
 					{rail ? null : <ArrowRightIcon size={12} aria-hidden="true" />}
@@ -1173,6 +1352,15 @@ function VerifiedCheck() {
 			/>
 		</svg>
 	);
+}
+const clock = new Intl.DateTimeFormat(undefined, {
+	hour: "numeric",
+	minute: "2-digit",
+});
+/** A local clock time, or nothing for a value that is not a date. */
+function formatTime(value: string) {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? "" : clock.format(date);
 }
 /** The permitted tools in plain words: all, a count, or up to three names. */
 export function toolSummary(rules: Snapshot["grants"][number]["rules"][]) {
@@ -1310,7 +1498,7 @@ const s = stylex.create({
 	},
 	segments: {
 		display: "grid",
-		gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+		gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
 		gap: 4,
 	},
 	segment: {
@@ -1574,6 +1762,11 @@ const s = stylex.create({
 		gap: 6,
 	},
 	good: { color: colors.good, verticalAlign: "-2px" },
+	code: {
+		fontFamily: geometry.fontMono,
+		fontSize: typeScale.size13,
+		overflowWrap: "anywhere",
+	},
 	bad: { color: colors.bad },
 	check: { flexShrink: 0, fontSize: typeScale.size16, overflow: "visible" },
 	checkStroke: {

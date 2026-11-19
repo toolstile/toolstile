@@ -1,3 +1,4 @@
+import { activityOrigins } from "@toolstile/database/activity-origin";
 import { z } from "zod";
 import { approvalReference } from "./approval-contract.js";
 
@@ -195,6 +196,8 @@ export const activityView = z.object({
 	id: z.string(),
 	agent: z.string(),
 	connection: z.string(),
+	/** Whether an agent sent the request or the dashboard made it for the user. */
+	origin: z.enum(activityOrigins),
 	method: z.string(),
 	target: z.string().nullable(),
 	outcome: z.string(),

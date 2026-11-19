@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { ActivityOrigin } from "./activity-origin";
 import { dateTime, integer, json, text } from "./pg-columns";
 /** Fresh builders per table; each application owns keys and references. */
 export function setupProgressColumns() {
@@ -10,7 +11,9 @@ export function setupProgressColumns() {
 		agentId: text(),
 		verificationKey: text(),
 		verifiedAt: dateTime(),
-		updatedAt: dateTime().notNull().default(sql`now()`),
+		updatedAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 export function authorizationColumns() {
@@ -18,7 +21,9 @@ export function authorizationColumns() {
 		tokenHash: text().notNull().unique(),
 		expiresAt: dateTime(),
 		revokedAt: dateTime(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 export function grantColumns<Rules>() {
@@ -28,11 +33,18 @@ export function activityColumns() {
 	return {
 		agent: text().notNull(),
 		connection: text().notNull(),
+		/** The application's agent and connection ids; null on rows recorded before they were stored. */
+		agentId: text(),
+		connectionId: text(),
+		/** Null on rows recorded before origins were stored; see `activityOrigin`. */
+		origin: text().$type<ActivityOrigin>(),
 		method: text().notNull(),
 		target: text(),
 		outcome: text().notNull(),
 		durationMs: integer().notNull(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 export function debugSessionColumns() {
@@ -41,7 +53,9 @@ export function debugSessionColumns() {
 		connectionIds: json().$type<string[]>().notNull(),
 		stopsAt: dateTime().notNull(),
 		stoppedAt: dateTime(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 export function debugPayloadColumns() {
@@ -50,7 +64,9 @@ export function debugPayloadColumns() {
 		connectionId: text().notNull(),
 		encryptedPayload: text().notNull(),
 		expiresAt: dateTime().notNull(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 
@@ -80,7 +96,9 @@ export function approvalColumns() {
 		claimedOperationId: text(),
 		claimedAt: dateTime(),
 		settledAt: dateTime(),
-		createdAt: dateTime().notNull().default(sql`now()`),
+		createdAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 
@@ -91,7 +109,9 @@ export function approvalColumns() {
 export function toolReviewSettingColumns() {
 	return {
 		enabledBy: text().notNull(),
-		enabledAt: dateTime().notNull().default(sql`now()`),
+		enabledAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 export function toolDefinitionColumns() {
@@ -100,7 +120,9 @@ export function toolDefinitionColumns() {
 		digest: text().notNull(),
 		/** Readable canonical JSON, bounded by the gateway; null when too large to keep. */
 		snapshot: text(),
-		observedAt: dateTime().notNull().default(sql`now()`),
+		observedAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }
 export function toolReviewColumns() {
@@ -108,6 +130,8 @@ export function toolReviewColumns() {
 		name: text().notNull(),
 		digest: text().notNull(),
 		reviewedBy: text().notNull(),
-		reviewedAt: dateTime().notNull().default(sql`now()`),
+		reviewedAt: dateTime()
+			.notNull()
+			.default(sql`now()`),
 	};
 }

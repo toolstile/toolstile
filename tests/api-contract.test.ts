@@ -11,6 +11,7 @@ import {
 	createCommonRouter,
 	type Services,
 } from "@toolstile/api/server";
+import { activityOrigin } from "../packages/database/src/activity-origin";
 import { describe, expect, it, vi } from "vitest";
 import {
 	createORPCClient,
@@ -248,5 +249,17 @@ describe("management response boundaries", () => {
 		);
 		expect(result.matched).toBe(false);
 		expect(result.response).toBeUndefined();
+	});
+});
+describe("activity origin", () => {
+	it("keeps stored origins and derives legacy ones from the dashboard's labels", () => {
+		expect(activityOrigin("agent", "Dashboard")).toBe("agent");
+		expect(activityOrigin("dashboard", "Claude Code")).toBe("dashboard");
+		expect(activityOrigin(null, "Dashboard")).toBe("dashboard");
+		expect(activityOrigin(null, "Dashboard test / Claude Code")).toBe(
+			"dashboard",
+		);
+		for (const label of ["Claude Code", "Dashboard agent", "Dashboard test"])
+			expect(activityOrigin(null, label), label).toBe("agent");
 	});
 });
