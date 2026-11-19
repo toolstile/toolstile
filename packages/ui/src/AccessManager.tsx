@@ -1093,18 +1093,19 @@ function ServerAccess({
 			(name) =>
 				toolCell(rules, name, everyoneRules).effect !== "allowed" &&
 				toolCell(allowedAll, name, everyoneRules).effect === "allowed",
-		).length;
+		);
 		return {
 			total: offered.length,
 			allowed,
 			approval,
-			locked: offered.length - grantable,
+			locked: offered.length - grantable.length,
 			full: rules.full || !!everyoneRules?.full,
 			// Only this agent's own draft: an unrelated Everyone edit keeps the first action.
 			staged: column.id in draft,
+			// Only the counted tools: one Everyone already allows gets no grant of its own.
 			allowAll: () =>
 				edit(column.id, (next) =>
-					setRows(next, offered, true, inheritedFrom(column)),
+					setRows(next, grantable, true, inheritedFrom(column)),
 				),
 			canSave: changes > 0,
 			save: () => void saveDraft(),
