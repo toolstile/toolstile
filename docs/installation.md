@@ -2,7 +2,7 @@
 
 Toolstile is the independent-user MCP gateway. Choose the deployment that fits your own infrastructure:
 
-- [Local operation](local-operation.md): Node 24 with persistent embedded PGlite and no external database.
+- [Local operation](local-operation.md): one executable, or Node 26 from a source checkout, with persistent embedded PGlite and no external database.
 - [Docker Compose](containers.md): a production container with persistent PostgreSQL, external secrets and your HTTPS reverse proxy.
 - [Kubernetes](kubernetes.md): the same image with operator-managed PostgreSQL, Secrets and ingress/TLS.
 

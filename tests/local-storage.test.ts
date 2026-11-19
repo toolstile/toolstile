@@ -81,6 +81,15 @@ test("restore refuses corrupted data and keys without creating an instance", asy
 	await expect(stat(restored)).rejects.toThrow();
 }, 90_000);
 
+test("a chosen port without an origin keeps the origin on that port", async () => {
+	const { data } = await fixture();
+	await command(data, "init", "--port", "4500");
+	const config = JSON.parse(
+		await readFile(join(data, "instance.json"), "utf8"),
+	);
+	expect([config.origin, config.port]).toEqual(["http://127.0.0.1:4500", 4500]);
+}, 90_000);
+
 test("local serving refuses plain HTTP beyond loopback", async () => {
 	const { data } = await fixture();
 	await expect(

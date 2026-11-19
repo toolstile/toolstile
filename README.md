@@ -28,7 +28,7 @@ Both paths open the same guided setup in the dashboard and end with Claude Code 
 
 ### On your machine
 
-Needs [Vite+](https://viteplus.dev) (`vp`) and Node.js 24 as your `node` (check with `node -v`). The database is embedded, so there is no Docker or database server to set up. Local mode is tested on macOS on Apple silicon.
+Needs [Vite+](https://viteplus.dev) (`vp`) and Node.js 26 as your `node` (check with `node -v`). The database is embedded, so there is no Docker or database server to set up. Local mode is tested on macOS on Apple silicon.
 
 ```sh
 git clone https://github.com/toolstile/toolstile.git

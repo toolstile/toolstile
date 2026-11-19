@@ -34,7 +34,7 @@ Signup email verification and recovery messages use an encrypted outbox in the a
 
 Operators can list account administration fields, invite users, suspend accounts and request deletion of suspended accounts through `operatorUsers`, `inviteUser`, `suspendUser`, and `operatorDeleteUser`. These methods expose no other account's connections, credentials or gateway activity. Emergency reset has no dashboard endpoint.
 
-With Node.js 24.17.0 selected, run the audited emergency procedure from `apps/web`, after verifying the account holder's identity through a trusted channel:
+With Node.js 26.13.1 selected, run the audited emergency procedure from `apps/web`, after verifying the account holder's identity through a trusted channel:
 
 ```sh
 vp exec tsx --env-file-if-exists=.env src/server/account-cli.ts emergency-reset USER_ID OPERATOR_ID 'Reason for the verified reset'
