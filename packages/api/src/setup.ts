@@ -36,7 +36,8 @@ export type SetupDependencies = {
 	runtime(actor: Actor, agentId: string): Runtime;
 	/**
 	 * The earliest retained activity row in the actor's scope that the agent sent to the MCP
-	 * endpoint (`origin` agent) as a forwarded `tools/call` on the connection.
+	 * endpoint (`origin` agent) as a `tools/call` on the connection that reached the provider
+	 * (outcome `forwarded` or `upstream_error`: a tool that answered with an error was still called).
 	 */
 	firstCall(
 		actor: Actor,

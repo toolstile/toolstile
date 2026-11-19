@@ -304,6 +304,8 @@ describe.skipIf(!process.env.DATABASE_URL)("persisted guided setup", () => {
 			agentId: "agent",
 			connectionId: "connection",
 			origin: "agent",
+			// A tool that answered with an error was still called.
+			outcome: "upstream_error",
 			createdAt: "2026-01-01T00:00:00Z",
 		});
 		const called = await service.status(actor);

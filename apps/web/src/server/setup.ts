@@ -31,7 +31,7 @@ function adapt(deps: Dependencies): SetupDependencies {
 				target: string | null;
 				createdAt: Date | string;
 			}>(
-				`SELECT id,target,"createdAt" FROM activity WHERE "ownerId"=$1 AND "agentId"=$2 AND "connectionId"=$3 AND origin='agent' AND method='tools/call' AND outcome='forwarded' ORDER BY "createdAt",id LIMIT 1`,
+				`SELECT id,target,"createdAt" FROM activity WHERE "ownerId"=$1 AND "agentId"=$2 AND "connectionId"=$3 AND origin='agent' AND method='tools/call' AND outcome IN ('forwarded','upstream_error') ORDER BY "createdAt",id LIMIT 1`,
 				[actor.userId, input.agentId, input.connectionId],
 			);
 			const row = rows[0];

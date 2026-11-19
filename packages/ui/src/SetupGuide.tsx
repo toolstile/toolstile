@@ -403,6 +403,9 @@ export function SetupGuide({
 		// does, the guide reads its full progress and the host reloads the dashboard, so activity
 		// and plan usage show the call too. The poll never saves setup progress.
 		let inFlight = false;
+		// Set on cleanup (Skip, a step change, another workspace): a response that arrives
+		// afterwards is dropped.
+		let stopped = false;
 		let timer: ReturnType<typeof setInterval> | undefined;
 		const check = () => {
 			if (inFlight || saving.current || document.visibilityState === "hidden")
@@ -411,10 +414,12 @@ export function SetupGuide({
 			setupApi.current
 				.setupFirstCall()
 				.then(async ({ firstCall }) => {
-					if (!firstCall || saving.current) return;
+					if (!firstCall || saving.current || stopped) return;
 					// Progress first: it counts as the guide's own update, so a dashboard reload that
 					// started earlier cannot bring back progress without the call.
-					reportState.current(await setupApi.current.setupStatus());
+					const progress = await setupApi.current.setupStatus();
+					if (stopped || saving.current) return;
+					reportState.current(progress);
 					await reloadSnapshot.current?.();
 				})
 				.catch(() => undefined)
@@ -437,6 +442,7 @@ export function SetupGuide({
 		window.addEventListener("focus", check);
 		document.addEventListener("visibilitychange", visibility);
 		return () => {
+			stopped = true;
 			clearInterval(timer);
 			window.removeEventListener("focus", check);
 			document.removeEventListener("visibilitychange", visibility);
@@ -558,6 +564,8 @@ export function SetupGuide({
 			return;
 		}
 		const access = JSON.stringify([connectionId, agentId, rules]);
+		// A verification that lapses later (the connection's status changed, say) is checked again.
+		if (verified) automatic.current.verification = "";
 		if (
 			state.completed.access &&
 			!verified &&
