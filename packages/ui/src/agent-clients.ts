@@ -40,6 +40,16 @@ export const agentAppGroups: { id: AgentAppGroup; label: string }[] = [
 	{ id: "automation", label: "In an automation" },
 ];
 
+/** The apps the picker shows first, most used first; the rest stay one step away. */
+export const popularAgentApps: readonly SetupClient[] = [
+	"claude-code",
+	"codex",
+	"cursor",
+	"vscode",
+	"claude",
+	"chatgpt",
+];
+
 const urlStep = (text: string, endpoint: string): AgentStep => ({
 	text,
 	code: endpoint,
