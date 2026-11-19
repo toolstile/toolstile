@@ -12,7 +12,9 @@ node scripts/local.mjs bootstrap you@example.com
 node scripts/local.mjs start
 ```
 
-Open the printed invitation URL and register. Then stop the server (Ctrl-C), because the administrative commands open the same PGlite directory, grant instance administration to that account and start it again:
+While `start` is running, open the printed invitation URL (valid for 24 hours) and register. That account can add connections, connect agents and set access straight away.
+
+To invite other people or change instance settings, make the account an operator. Stop the server (Ctrl-C) first, because the administrative commands open the same PGlite directory, then start it again:
 
 ```sh
 node scripts/local.mjs operator you@example.com
