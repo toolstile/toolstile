@@ -283,6 +283,15 @@ describe("access grid tool cells", () => {
 		expect(all).not.toContain("Mail tools for Writer</button>");
 	});
 
+	it("leaves out a tool the agent blocks while Everyone requires approval", () => {
+		const html = withEveryone(
+			rules({ requireApproval: ["read"] }),
+			rules({ block: { tools: ["read"], resources: [], prompts: [] } }),
+		);
+		expect(html).toContain("Writer can’t use Mail yet.");
+		expect(html).toContain("Allow all 2 Mail tools for Writer</button>");
+	});
+
 	it("does not call saved resource access no access", () => {
 		expect(
 			withEveryone(

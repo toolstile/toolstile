@@ -1086,13 +1086,19 @@ function ServerAccess({
 			if (effect === "allowed") allowed += 1;
 			else if (effect === "approval") approval += 1;
 		}
+		// Counted from what the button's own edit would change, so the label cannot promise
+		// a tool that an Everyone block or approval leaves as it is.
+		const allowedAll = setRows(rules, offered, true, everyoneRules);
+		const grantable = offered.filter(
+			(name) =>
+				toolCell(rules, name, everyoneRules).effect !== "allowed" &&
+				toolCell(allowedAll, name, everyoneRules).effect === "allowed",
+		).length;
 		return {
 			total: offered.length,
 			allowed,
 			approval,
-			locked: offered.filter(
-				(name) => toolCell(rules, name, everyoneRules).everyoneLock,
-			).length,
+			locked: offered.length - grantable,
 			full: rules.full || !!everyoneRules?.full,
 			// Only this agent's own draft: an unrelated Everyone edit keeps the first action.
 			staged: column.id in draft,
