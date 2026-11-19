@@ -190,8 +190,11 @@ export function ActivityPanel({
 	const query = view.query ?? "";
 	const needle = query.trim().toLowerCase();
 	const filter = filters.find((item) => item.id === outcome) ?? filters[0];
+	// While the scope loads, the rows and the client can still belong to another workspace, so
+	// the link is not matched, read, highlighted or scrolled to until it settles.
+	const request = pending ? undefined : view.request;
 	const loaded =
-		!!view.request && data.activity.some((entry) => entry.id === view.request);
+		!!request && data.activity.some((entry) => entry.id === request);
 	// Only recent requests are loaded; a linked older one is read on its own, once per client
 	// and id. The host replaces the client when the workspace changes, so an answer read for an
 	// earlier workspace is neither shown nor reused. Retry starts the read again.
@@ -206,9 +209,8 @@ export function ActivityPanel({
 		{ api: ManagementClient; id: string; attempt: number } | undefined
 	>(undefined);
 	useEffect(() => {
-		const id = view.request;
-		// Not while the scope loads: the client could still read another workspace.
-		if (!id || loaded || pending) return;
+		const id = request;
+		if (!id || loaded) return;
 		const last = lookup.current;
 		if (last && last.api === api && last.id === id && last.attempt === attempt)
 			return;
@@ -224,20 +226,16 @@ export function ActivityPanel({
 			(entry) => settle(entry, false),
 			() => settle(null, true),
 		);
-	}, [api, view.request, loaded, attempt, pending]);
+	}, [api, request, loaded, attempt]);
 	const fetched =
-		!loaded &&
-		!pending &&
-		linked &&
-		linked.id === view.request &&
-		linked.api === api
+		!loaded && linked && linked.id === request && linked.api === api
 			? linked
 			: undefined;
 	const activity = fetched?.entry
 		? withEntry(data.activity, fetched.entry)
 		: data.activity;
-	const requested = view.request
-		? activity.find((entry) => entry.id === view.request)
+	const requested = request
+		? activity.find((entry) => entry.id === request)
 		: undefined;
 	// The lookup answered that the caller cannot see the request, or it no longer exists.
 	const missing = !!fetched && !fetched.entry;
@@ -301,9 +299,9 @@ export function ActivityPanel({
 	const requestedRow = useRef<HTMLTableRowElement>(null);
 	const scrolledTo = useRef<string | undefined>(undefined);
 	useEffect(() => {
-		if (!view.request || scrolledTo.current === view.request) return;
+		if (!request || scrolledTo.current === request) return;
 		if (!requestedRow.current) return;
-		scrolledTo.current = view.request;
+		scrolledTo.current = request;
 		requestedRow.current.scrollIntoView({ block: "center" });
 	});
 	return (

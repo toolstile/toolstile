@@ -217,6 +217,39 @@ describe("activity panel linked request lookup", () => {
 		expect(lookup).toHaveBeenCalledTimes(1);
 		expect(current()).toContain("tool_old");
 	});
+	it("does not highlight a linked row left over from the previous scope", async () => {
+		const lookup = vi.fn(async () => null);
+		const api = { activityRequest: lookup } as unknown as ManagementClient;
+		const scroll = vi.fn();
+		const original = Element.prototype.scrollIntoView;
+		Element.prototype.scrollIntoView = scroll;
+		const render = (pending: boolean) =>
+			act(async () =>
+				root?.render(
+					<ActivityPanel
+						data={snapshot([entry("a1", 1)])}
+						api={api}
+						pending={pending}
+						view={{ request: "a1" }}
+						onViewChange={() => undefined}
+						onNavigate={() => undefined}
+					/>,
+				),
+			);
+		container = document.createElement("div");
+		root = createRoot(container);
+		try {
+			await render(true);
+			expect(current()).toBeNull();
+			expect(scroll).not.toHaveBeenCalled();
+			expect(lookup).not.toHaveBeenCalled();
+			await render(false);
+			expect(current()).toContain("tool_a1");
+			expect(scroll).toHaveBeenCalledTimes(1);
+		} finally {
+			Element.prototype.scrollIntoView = original;
+		}
+	});
 	it("does not look up a loaded request or when none is linked", async () => {
 		const lookup = vi.fn(async () => null);
 		const rerender = await mount([entry("a1", 1)], {}, lookup);
