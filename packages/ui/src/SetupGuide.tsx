@@ -402,8 +402,8 @@ export function SetupGuide({
 		if (!waitingForCall) return;
 		// One request at a time, only while the page is visible, and never while the guide saves.
 		// The interval and returning to the page ask only whether the first call exists; once it
-		// does, the guide reads its full progress and the host reloads the dashboard, so activity
-		// and plan usage show the call too. The poll never saves setup progress.
+		// does, the guide reads its full progress and the host reloads the dashboard, so the rest
+		// of the page shows the call too. The poll never saves setup progress.
 		let inFlight = false;
 		// Set on cleanup (Skip, a step change, another workspace): a response that arrives
 		// afterwards is dropped.
