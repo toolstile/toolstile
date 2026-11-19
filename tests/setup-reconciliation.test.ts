@@ -40,6 +40,7 @@ function fixture() {
 		id: string;
 		target: string | null;
 		createdAt: Date;
+		failed: boolean;
 	}[] = [];
 	const firstCall = vi.fn(
 		async (_actor: Actor, input: { agentId: string; connectionId: string }) => {
@@ -49,7 +50,12 @@ function fixture() {
 					entry.connectionId === input.connectionId,
 			);
 			return (
-				call && { id: call.id, target: call.target, createdAt: call.createdAt }
+				call && {
+					id: call.id,
+					target: call.target,
+					createdAt: call.createdAt,
+					failed: call.failed,
+				}
 			);
 		},
 	);
@@ -209,6 +215,7 @@ describe("setup reconciles access configured outside the guide", () => {
 			id: "call",
 			target: "read",
 			createdAt: new Date("2026-01-01T00:00:00Z"),
+			failed: false,
 		});
 		expect((await service.save(actor, input)).status).toBe("finished");
 		expect((await service.status(actor)).status).toBe("finished");
@@ -237,6 +244,7 @@ describe("setup reconciles access configured outside the guide", () => {
 				id: "other-agent",
 				target: "read",
 				createdAt: new Date("2026-01-01T00:00:00Z"),
+				failed: false,
 			},
 			{
 				agentId: "configured",
@@ -244,6 +252,7 @@ describe("setup reconciles access configured outside the guide", () => {
 				id: "other-connection",
 				target: "read",
 				createdAt: new Date("2026-01-01T00:00:00Z"),
+				failed: false,
 			},
 		);
 		expect((await service.status(actor)).completed.call).toBe(false);
@@ -253,6 +262,7 @@ describe("setup reconciles access configured outside the guide", () => {
 			id: "call",
 			target: "read",
 			createdAt: new Date("2026-01-02T00:00:00Z"),
+			failed: false,
 		});
 		const state = await service.status(actor);
 		expect(state).toMatchObject({

@@ -121,6 +121,7 @@ const called = verified({
 		id: "act-1",
 		target: "ask_wiki_question",
 		createdAt: "2026-10-28T00:01:00.000Z",
+		failed: false,
 	},
 });
 
@@ -472,6 +473,7 @@ describe("guided setup card", () => {
 					id: "act-1",
 					target: null,
 					createdAt: "2026-10-28T00:01:00.000Z",
+					failed: false,
 				},
 			},
 			granted(),

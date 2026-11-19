@@ -35,15 +35,16 @@ export type SetupDependencies = {
 	services: Pick<Services, "snapshot" | "agentCatalog">;
 	runtime(actor: Actor, agentId: string): Runtime;
 	/**
-	 * The earliest retained activity row in the actor's scope that the agent sent to the MCP
-	 * endpoint (`origin` agent) as a `tools/call` on the connection that reached the provider
-	 * (outcome `forwarded` or `upstream_error`: a tool that answered with an error was still called).
+	 * The activity row in the actor's scope that the agent sent to the MCP endpoint (`origin`
+	 * agent) as a `tools/call` on the connection: the earliest `forwarded` one, else the earliest
+	 * `upstream_error` one (`failed`: the provider returned an error or did not answer).
 	 */
 	firstCall(
 		actor: Actor,
 		input: { agentId: string; connectionId: string },
 	): Promise<
-		{ id: string; target: string | null; createdAt: Date } | undefined
+		| { id: string; target: string | null; createdAt: Date; failed: boolean }
+		| undefined
 	>;
 };
 
@@ -86,6 +87,7 @@ export function createSetupService(deps: SetupDependencies) {
 					id: call.id,
 					target: call.target,
 					createdAt: call.createdAt.toISOString(),
+					failed: call.failed,
 				}
 			: null;
 	}

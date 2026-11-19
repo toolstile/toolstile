@@ -30,8 +30,9 @@ function adapt(deps: Dependencies): SetupDependencies {
 				id: string;
 				target: string | null;
 				createdAt: Date | string;
+				failed: boolean;
 			}>(
-				`SELECT id,target,"createdAt" FROM activity WHERE "ownerId"=$1 AND "agentId"=$2 AND "connectionId"=$3 AND origin='agent' AND method='tools/call' AND outcome IN ('forwarded','upstream_error') ORDER BY "createdAt",id LIMIT 1`,
+				`SELECT id,target,"createdAt",outcome<>'forwarded' AS failed FROM activity WHERE "ownerId"=$1 AND "agentId"=$2 AND "connectionId"=$3 AND origin='agent' AND method='tools/call' AND outcome IN ('forwarded','upstream_error') ORDER BY outcome<>'forwarded',"createdAt",id LIMIT 1`,
 				[actor.userId, input.agentId, input.connectionId],
 			);
 			const row = rows[0];

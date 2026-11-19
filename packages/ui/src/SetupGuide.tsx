@@ -340,6 +340,8 @@ export function SetupGuide({
 	shownAgents.current = agents;
 	/** Set while the guide saves or checks; polling waits so it cannot race the save. */
 	const saving = useRef(false);
+	/** Counts the guide's saves, so a poll can tell that one started after it did. */
+	const saveCount = useRef(0);
 	useEffect(() => {
 		if (!waitingForAgent) return;
 		// One request at a time; the interval runs only while the page is visible. Returning to
@@ -411,14 +413,16 @@ export function SetupGuide({
 			if (inFlight || saving.current || document.visibilityState === "hidden")
 				return;
 			inFlight = true;
+			const saves = saveCount.current;
+			const stale = () => stopped || saves !== saveCount.current;
 			setupApi.current
 				.setupFirstCall()
 				.then(async ({ firstCall }) => {
-					if (!firstCall || saving.current || stopped) return;
+					if (!firstCall || stale()) return;
 					// Progress first: it counts as the guide's own update, so a dashboard reload that
 					// started earlier cannot bring back progress without the call.
 					const progress = await setupApi.current.setupStatus();
-					if (stopped || saving.current) return;
+					if (stale()) return;
 					reportState.current(progress);
 					await reloadSnapshot.current?.();
 				})
@@ -456,6 +460,7 @@ export function SetupGuide({
 		if (busy) return;
 		setBusy(true);
 		saving.current = true;
+		saveCount.current += 1;
 		report("");
 		try {
 			await work();
@@ -673,7 +678,9 @@ export function SetupGuide({
 	const callSummary = firstCall
 		? `${agentName} ${firstCall.target ? `called ${firstCall.target}` : "called a tool"}${connection ? ` on ${connection.label}` : ""}`
 		: `Waiting for ${activeAgent ? `${activeAgent.label}'s` : "your agent's"} first call`;
-	const callMark = calledOnMount.current ? (
+	const callMark = firstCall?.failed ? (
+		<WarningCircleIcon aria-hidden="true" {...stylex.props(s.bad)} />
+	) : calledOnMount.current ? (
 		<CheckCircleIcon aria-hidden="true" {...stylex.props(s.good)} />
 	) : (
 		<VerifiedCheck />
@@ -1054,6 +1061,9 @@ export function SetupGuide({
 											)}
 											{connection ? ` on ${connection.label}` : ""}
 											{callTime ? ` at ${callTime}` : ""}.
+											{firstCall.failed
+												? " The provider returned an error, so check the request in Activity."
+												: ""}
 										</span>
 									</span>
 								) : (

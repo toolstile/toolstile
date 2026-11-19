@@ -45,7 +45,13 @@ export type SetupState = SetupSelection & {
 	};
 	verifiedAt: string | null;
 	/** The earliest retained forwarded agent `tools/call` for the selected agent and connection. */
-	firstCall: { id: string; target: string | null; createdAt: string } | null;
+	/** `failed`: the call reached the gateway but the provider returned an error or no answer. */
+	firstCall: {
+		id: string;
+		target: string | null;
+		createdAt: string;
+		failed: boolean;
+	} | null;
 };
 export type SetupApi = {
 	setupStatus(): Promise<SetupState>;

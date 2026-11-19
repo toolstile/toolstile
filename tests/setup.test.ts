@@ -294,6 +294,18 @@ describe.skipIf(!process.env.DATABASE_URL)("persisted guided setup", () => {
 			message:
 				"Complete the connection, agent, access, verification and first-call steps first.",
 		});
+		// A call the provider failed counts, marked as failed, until one succeeds.
+		const failed = await record({
+			agentId: "agent",
+			connectionId: "connection",
+			origin: "agent",
+			outcome: "upstream_error",
+			createdAt: "2025-12-31T00:00:00Z",
+		});
+		expect((await service.status(actor)).firstCall).toMatchObject({
+			id: failed,
+			failed: true,
+		});
 		await record({
 			agentId: "agent",
 			connectionId: "connection",
@@ -304,8 +316,6 @@ describe.skipIf(!process.env.DATABASE_URL)("persisted guided setup", () => {
 			agentId: "agent",
 			connectionId: "connection",
 			origin: "agent",
-			// A tool that answered with an error was still called.
-			outcome: "upstream_error",
 			createdAt: "2026-01-01T00:00:00Z",
 		});
 		const called = await service.status(actor);
@@ -314,6 +324,7 @@ describe.skipIf(!process.env.DATABASE_URL)("persisted guided setup", () => {
 			id: earliest,
 			target: "read",
 			createdAt: "2026-01-01T00:00:00.000Z",
+			failed: false,
 		});
 		// The poll reads the stored selection and writes nothing.
 		const router = createSetupRouter(dependencies());

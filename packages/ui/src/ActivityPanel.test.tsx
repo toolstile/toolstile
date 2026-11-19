@@ -131,5 +131,9 @@ describe("activity panel", () => {
 		const html = render(mixed, { request: "missing" });
 		expect(html).not.toContain('aria-current="true"');
 		expect(html).toContain("Showing all 2 recent requests");
+		expect(html).toContain(
+			"The linked request is older than the recent requests",
+		);
+		expect(render(mixed)).not.toContain("The linked request is older");
 	});
 });

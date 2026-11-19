@@ -336,6 +336,7 @@ describe("guided setup waiting for the first call", () => {
 		id: "act-1",
 		target: "ask_wiki_question",
 		createdAt: "2026-10-28T00:01:00.000Z",
+		failed: false,
 	};
 	const called: SetupState = {
 		...verified,

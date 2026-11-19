@@ -190,6 +190,8 @@ export function ActivityPanel({
 	const requested = view.request
 		? data.activity.find((entry) => entry.id === view.request)
 		: undefined;
+	// Only recent requests are loaded, so a link to an older one has no row to show.
+	const missing = !!view.request && !requested;
 	// A linked request the dashboard made is shown with every source.
 	const source =
 		view.source === "all" || requested?.origin === "dashboard"
@@ -555,8 +557,15 @@ export function ActivityPanel({
 							</div>
 						) : null}
 						{(matching.length && matching.length <= ACTIVITY_PAGE_SIZE) ||
-						hidden ? (
+						hidden ||
+						missing ? (
 							<div {...stylex.props(local.footnote)}>
+								{missing ? (
+									<span role="status">
+										The linked request is older than the recent requests shown
+										here.
+									</span>
+								) : null}
 								{matching.length && matching.length <= ACTIVITY_PAGE_SIZE ? (
 									<span>
 										{matching.length === sourced.length
