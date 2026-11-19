@@ -6,6 +6,7 @@ import {
 	type Upstream,
 } from "@toolstile/gateway";
 import { z } from "zod";
+import { builtInTools } from "./built-in-tools.js";
 import {
 	type CatalogEntry,
 	connectorCategories,
@@ -26,6 +27,7 @@ const searchInput = z.object({
 	limit: z.number().int().min(1).max(25).default(10),
 });
 const entryInput = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/) });
+const [searchTool, entryTool, accessTool] = builtInTools;
 
 const json = (value: unknown) => ({
 	content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -45,7 +47,7 @@ export function agentTools(source: {
 	connections(): Promise<Upstream[]>;
 }): BuiltinTools {
 	const handlers: Record<string, (args: unknown) => Promise<unknown>> = {
-		async search_catalog(args) {
+		async [searchTool.name](args) {
 			const input = searchInput.parse(args);
 			const matches = searchConnectors(await source.catalog(), input);
 			return {
@@ -61,7 +63,7 @@ export function agentTools(source: {
 				})),
 			};
 		},
-		async get_catalog_entry(args) {
+		async [entryTool.name](args) {
 			const { id } = entryInput.parse(args);
 			const entry = (await source.catalog()).find((item) => item.slug === id);
 			if (!entry) return undefined;
@@ -96,7 +98,7 @@ export function agentTools(source: {
 				},
 			};
 		},
-		async get_my_access() {
+		async [accessTool.name]() {
 			const connections = (await source.connections()).flatMap((upstream) => {
 				const allTools = upstream.rules.some((rule) => rule.full);
 				const names = [
@@ -130,8 +132,8 @@ export function agentTools(source: {
 	return {
 		definitions: [
 			{
-				name: "search_catalog",
-				title: "Search the Toolstile catalog",
+				name: searchTool.name,
+				title: searchTool.title,
 				description:
 					"Search the catalog of suggested MCP services that can be connected to Toolstile, by name, keyword or capability. Returns matching services; it does not connect anything or change access.",
 				inputSchema: {
@@ -154,11 +156,11 @@ export function agentTools(source: {
 						limit: { type: "integer", minimum: 1, maximum: 25, default: 10 },
 					},
 				},
-				annotations: { title: "Search the Toolstile catalog", ...readOnly },
+				annotations: { title: searchTool.title, ...readOnly },
 			},
 			{
-				name: "get_catalog_entry",
-				title: "Get a Toolstile catalog entry",
+				name: entryTool.name,
+				title: entryTool.title,
 				description:
 					"Get one catalog service's details by its id from search_catalog: what it does, its suggested URL, how it signs in, requirements and its last observed tools.",
 				inputSchema: {
@@ -168,15 +170,15 @@ export function agentTools(source: {
 					},
 					required: ["id"],
 				},
-				annotations: { title: "Get a Toolstile catalog entry", ...readOnly },
+				annotations: { title: entryTool.title, ...readOnly },
 			},
 			{
-				name: "get_my_access",
-				title: "Show this agent's access",
+				name: accessTool.name,
+				title: accessTool.title,
 				description:
 					"List the connections this agent can reach through Toolstile and the tools it is granted, including which need approval for each call. Shows only this agent's own access.",
 				inputSchema: { type: "object", properties: {} },
-				annotations: { title: "Show this agent's access", ...readOnly },
+				annotations: { title: accessTool.title, ...readOnly },
 			},
 		],
 		async call(name, args) {

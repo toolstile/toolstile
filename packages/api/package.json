@@ -29,6 +29,7 @@
       "browser": null,
       "default": "./src/agent-tools.ts"
     },
+    "./built-in-tools": "./src/built-in-tools.ts",
     "./connectors": "./src/connectors.ts",
     "./connector-client": "./src/connector-client.ts",
     "./connector-server": {

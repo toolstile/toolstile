@@ -2,6 +2,7 @@ import { Menu } from "@base-ui/react/menu";
 import {
 	ArrowsClockwiseIcon,
 	CaretDownIcon,
+	CaretRightIcon,
 	CheckIcon,
 	CheckSquareIcon,
 	DesktopTowerIcon,
@@ -24,6 +25,7 @@ import type {
 	AllAgentGrantClient,
 	ManagementClient,
 } from "@toolstile/api/client";
+import { builtInTools } from "@toolstile/api/built-in-tools";
 import type { ConnectorStarter } from "@toolstile/api/connectors";
 import type {
 	AccessSearch,
@@ -34,6 +36,7 @@ import type {
 import {
 	type FormEvent,
 	type ReactNode,
+	useCallback,
 	useEffect,
 	useId,
 	useMemo,
@@ -317,6 +320,27 @@ type ToolMenuTarget = {
 	name: string;
 	everyone: boolean;
 };
+/** What the upstream server declares about one tool. Not verified, so never acted on. */
+type ToolHint = NonNullable<Verification["hints"]>[number];
+/** One agent that reaches nothing saved on a connection yet, with its draft's counts. */
+type FirstGrantState = {
+	/** Tools the catalog lists now. */
+	total: number;
+	/** Of those, allowed or requiring approval in the draft. */
+	allowed: number;
+	approval: number;
+	/** The draft turns on “Everything”, here or through Everyone. */
+	full: boolean;
+	/** This agent (or Everyone) has unsaved edits. */
+	staged: boolean;
+	/** Stages Allow for every tool listed now; saves nothing. */
+	allowAll(): void;
+	/** The draft holds a change that Save can apply. */
+	canSave: boolean;
+	/** The page's own Save and Discard, offered where the first button was. */
+	save(): void;
+	discard(): void;
+};
 
 /** Agents that can still connect, grouped under their device. */
 function agentGroups(data: Snapshot) {
@@ -415,10 +439,22 @@ export function AccessManager({
 			current = false;
 		};
 	}, [loadStarters, startersLoaded, server.id, server.connectorId, server.url]);
+	// The open connection reports unsaved edits here too, so its rail line does not keep
+	// stating the saved access while a different draft is on screen.
+	const [openDirty, setOpenDirty] = useState(false);
+	const reportDirty = useCallback(
+		(dirty: boolean) => {
+			setOpenDirty(dirty);
+			onDirtyChange(dirty);
+		},
+		[onDirtyChange],
+	);
 	function summary(connection: Connection) {
 		const tools = catalogs[connection.id]?.data?.tools.length;
 		return [
-			connectionAccessSummary(connection.id, true),
+			connection.id === server.id && openDirty
+				? "Unsaved changes"
+				: connectionAccessSummary(connection.id, true),
 			...(tools === undefined ? [] : [plural(tools, "tool")]),
 		].join(" · ");
 	}
@@ -486,7 +522,7 @@ export function AccessManager({
 				busy={busy}
 				save={save}
 				reload={reload}
-				onDirtyChange={onDirtyChange}
+				onDirtyChange={reportDirty}
 				onSignIn={onSignIn}
 				onConnectAgent={onConnectAgent}
 				starters={starters[server.id] ?? []}
@@ -600,6 +636,16 @@ function ServerAccess({
 				(catalogData?.descriptions ?? [])
 					.filter((entry) => entry.capability === kind)
 					.map((entry) => [entry.name, entry.description]),
+			),
+		[catalogData, kind],
+	);
+	/** What the upstream server declares about each tool; shown as a tag, never acted on. */
+	const hints = useMemo(
+		() =>
+			new Map<string, ToolHint>(
+				kind === "tools"
+					? (catalogData?.hints ?? []).map((hint) => [hint.name, hint])
+					: [],
 			),
 		[catalogData, kind],
 	);
@@ -1015,6 +1061,46 @@ function ServerAccess({
 			changed: column.id in draft,
 		};
 	}
+	/**
+	 * The empty state for one agent on this connection: nothing saved reaches it, own or
+	 * through Everyone. It counts the whole catalog, never the filtered rows.
+	 */
+	function firstGrantFor(column: Column): FirstGrantState | null {
+		const offered = catalogData?.tools ?? [];
+		if (!column.agent || kind !== "tools" || needle || !offered.length)
+			return null;
+		const savedOwn = saved(column.id);
+		const savedEveryone = inheritedFrom(column, saved);
+		if (savedOwn.full || savedEveryone?.full) return null;
+		const reachesSaved = rows.some((row) => {
+			const effect = toolCell(savedOwn, row.name, savedEveryone).effect;
+			return effect === "allowed" || effect === "approval";
+		});
+		if (reachesSaved) return null;
+		const rules = current(column.id);
+		const everyoneRules = inheritedFrom(column);
+		let allowed = 0;
+		let approval = 0;
+		for (const name of offered) {
+			const effect = toolCell(rules, name, everyoneRules).effect;
+			if (effect === "allowed") allowed += 1;
+			else if (effect === "approval") approval += 1;
+		}
+		return {
+			total: offered.length,
+			allowed,
+			approval,
+			full: rules.full || !!everyoneRules?.full,
+			staged: column.id in draft || (!!everyone && everyoneColumn in draft),
+			allowAll: () =>
+				edit(column.id, (next) =>
+					setRows(next, offered, true, inheritedFrom(column)),
+				),
+			canSave: changes > 0,
+			save: () => void saveDraft(),
+			discard,
+		};
+	}
 	// Adding a name by hand ends the scrolling list, so it never pins over the rows.
 	const addForm = (
 		<form onSubmit={addRow} {...stylex.props(styles.addRow)}>
@@ -1193,51 +1279,12 @@ function ServerAccess({
 							"List not loaded"
 						) : null}
 					</p>
-					{dirty ? (
-						<section
-							aria-label="Unsaved access changes"
-							{...stylex.props(styles.saveGroup)}
-						>
-							<p aria-live="polite" {...stylex.props(styles.saveText)}>
-								{changes
-									? `${plural(changes, "change")} not saved`
-									: `${plural(unsavedCount, "added row")} not saved`}
-							</p>
-							<button
-								type="button"
-								{...stylex.props(
-									controls.button,
-									controls.small,
-									controls.quiet,
-								)}
-								disabled={busy}
-								onClick={discard}
-							>
-								Discard
-							</button>
-							<button
-								type="button"
-								{...stylex.props(
-									controls.button,
-									controls.small,
-									controls.primary,
-								)}
-								// An added row is kept by choosing its access; there is nothing else to save.
-								disabled={busy || !changes}
-								title={
-									changes
-										? undefined
-										: "Choose access for the added row to save it."
-								}
-								onClick={() => void saveDraft()}
-							>
-								{busy ? "Saving…" : "Save changes"}
-							</button>
-						</section>
-					) : canCheck ? (
+					{canCheck ? (
 						<Tooltip
 							label={
-								catalog?.status === "ready" ? (
+								dirty ? (
+									"Save or discard your changes to refresh tools"
+								) : catalog?.status === "ready" ? (
 									<>
 										Refresh tools · checked{" "}
 										<RelativeTime value={catalog.checkedAt} compact />
@@ -1257,7 +1304,8 @@ function ServerAccess({
 									controls.iconOnly,
 									styles.refresh,
 								)}
-								disabled={loading}
+								// Stays in place while edits are unsaved, so the header never changes size.
+								disabled={loading || dirty}
 								onClick={() => loadCatalog(server.id, true)}
 							>
 								<ArrowsClockwiseIcon
@@ -1381,6 +1429,9 @@ function ServerAccess({
 					applied={applied?.column === selected.id ? applied : null}
 					onApplyStarter={(starter) => applyStarterTo(selected, starter)}
 					addForm={addForm}
+					addPending={!!addName}
+					hints={hints}
+					firstGrant={firstGrantFor(selected)}
 					toolbar={toolbar}
 				/>
 			) : (
@@ -1393,7 +1444,12 @@ function ServerAccess({
 					>
 						{visible.map((row) => (
 							<li key={row.name} {...stylex.props(styles.checkRow)}>
-								<CheckText row={row} kind={kind} />
+								<CheckText
+									row={row}
+									kind={kind}
+									hint={hints.get(row.name)}
+									server={server.label}
+								/>
 							</li>
 						))}
 					</ul>
@@ -1407,6 +1463,47 @@ function ServerAccess({
 					{rowFeedback}
 				</p>
 			)}
+			{/* Pinned to the panel's bottom edge, so it arrives without moving anything above it. */}
+			{dirty ? (
+				<section
+					aria-label="Unsaved access changes"
+					{...stylex.props(styles.saveBar)}
+				>
+					<p aria-live="polite" {...stylex.props(styles.saveText)}>
+						{changes
+							? `${plural(changes, "change")} not saved`
+							: `${plural(unsavedCount, "added row")} not saved`}
+					</p>
+					<span {...stylex.props(styles.saveActions)}>
+						<button
+							type="button"
+							{...stylex.props(controls.button, controls.small, controls.quiet)}
+							disabled={busy}
+							onClick={discard}
+						>
+							Discard
+						</button>
+						<button
+							type="button"
+							{...stylex.props(
+								controls.button,
+								controls.small,
+								controls.primary,
+							)}
+							// An added row is kept by choosing its access; there is nothing else to save.
+							disabled={busy || !changes}
+							title={
+								changes
+									? undefined
+									: "Choose access for the added row to save it."
+							}
+							onClick={() => void saveDraft()}
+						>
+							{busy ? "Saving…" : "Save changes"}
+						</button>
+					</span>
+				</section>
+			) : null}
 			<Menu.Root handle={modeMenu}>
 				{({ payload: target }) => {
 					if (!target) return null;
@@ -1421,10 +1518,7 @@ function ServerAccess({
 								{...stylex.props(popupStyles.positioner)}
 							>
 								<Menu.Popup
-									className={popupClassName(
-										popupStyles.menu,
-										styles.modeMenu,
-									)}
+									className={popupClassName(popupStyles.menu, styles.modeMenu)}
 								>
 									<Menu.Group>
 										<Menu.GroupLabel {...stylex.props(styles.modeMenuLabel)}>
@@ -1523,11 +1617,20 @@ function AgentAccessView({
 	applied,
 	onApplyStarter,
 	addForm,
+	addPending,
+	hints,
+	firstGrant,
 	toolbar,
 }: {
 	server: Connection;
 	kind: Capability;
 	column: Column;
+	/** Text is typed into the add-by-name field. */
+	addPending: boolean;
+	/** Server-declared tool hints by name. */
+	hints: Map<string, ToolHint>;
+	/** Set while this agent reaches nothing saved on the connection. */
+	firstGrant: FirstGrantState | null;
 	/** Reviewed starters to offer here; empty where none apply. */
 	starters: ConnectorStarter[];
 	/** What the last starter applied to this column did. */
@@ -1572,6 +1675,38 @@ function AgentAccessView({
 	const inheritedFull = !rules.full && !!everyoneRules?.full;
 	const fullOn = rules.full || inheritedFull;
 	const everyoneColumnEntry = columns.find((entry) => !entry.agent);
+	const id = useId();
+	// “Everything” and add-by-name are secondary; they open by themselves whenever in use,
+	// and stay open by default when the list failed to load and adding by name is the way in.
+	const optionsNeeded = fullOn || unsaved.length > 0 || addPending || !!failed;
+	const [optionsOpen, setOptionsOpen] = useState(optionsNeeded);
+	const optionsWereNeeded = useRef(optionsNeeded);
+	useEffect(() => {
+		if (optionsNeeded && !optionsWereNeeded.current) setOptionsOpen(true);
+		optionsWereNeeded.current = optionsNeeded;
+	}, [optionsNeeded]);
+	// The last sentence stays true when unset tools inherit something.
+	const everyoneGrants =
+		!!everyoneRules &&
+		(everyoneRules.full ||
+			everyoneRules.allow.tools.length > 0 ||
+			approvals(everyoneRules).length > 0);
+	const unsetText = !column.agent
+		? "Unset tools are left to each agent."
+		: fullOn
+			? "Unset tools are allowed through “Everything”."
+			: everyoneGrants
+				? "Unset tools follow Everyone."
+				: "Unset tools are not allowed.";
+	const builtIns =
+		kind === "tools"
+			? builtInTools.filter(
+					(tool) =>
+						!needle ||
+						tool.name.toLowerCase().includes(needle) ||
+						tool.reads.toLowerCase().includes(needle),
+				)
+			: [];
 	const bar = (entry: Column) => {
 		const { count, full, changed } = reach(entry);
 		const selected = entry.id === column.id;
@@ -1629,32 +1764,21 @@ function AgentAccessView({
 					{loading && !catalogPending ? (
 						<span aria-hidden="true" {...stylex.props(styles.refreshBar)} />
 					) : null}
+					{/* First, so the one action a new agent needs sits above the editor's controls. */}
+					{firstGrant && column.agent ? (
+						<FirstGrant
+							grant={firstGrant}
+							server={server.label}
+							agent={column.label}
+							busy={busy}
+						/>
+					) : null}
 					<div
 						id={column.agent ? `access-agent-${column.agent.id}` : undefined}
 						tabIndex={-1}
 						{...stylex.props(styles.agentHead)}
 					>
-						{/* The breadcrumb above names the agent; this row holds its controls. */}
-						<label
-							title={
-								inheritedFull
-									? "Included through Everyone"
-									: `Allow every tool, resource and prompt on ${server.label} for ${who}, including ones added later`
-							}
-							{...stylex.props(styles.agentFull)}
-						>
-							<Checkbox
-								checked={rules.full || inheritedFull}
-								disabled={busy || inheritedFull}
-								inherited={inheritedFull}
-								// Starts with the visible text so voice control can still find it.
-								aria-label={`${fullLabel}: allow every tool, resource and prompt on ${server.label} for ${who}`}
-								onCheckedChange={(full) =>
-									onEdit((current) => setFull(current, full))
-								}
-							/>
-							{fullLabel}
-						</label>
+						{/* The breadcrumb above names the agent; this row holds its bulk controls. */}
 						<BulkActions
 							items={columnMenu}
 							disabled={busy}
@@ -1664,6 +1788,12 @@ function AgentAccessView({
 							}
 						/>
 					</div>
+					{kind === "tools" ? (
+						<p {...stylex.props(styles.modeHelp)}>
+							Allow runs without review. Ask waits for your approval.{" "}
+							{unsetText}
+						</p>
+					) : null}
 					{(fullOn ? blocks : starters.length > 0) ? (
 						// One quiet line under the agent. With “Everything” on, the rule that blocks
 						// still win; otherwise the reviewed starters (they only narrow a partial grant).
@@ -1757,7 +1887,13 @@ function AgentAccessView({
 											<div
 												{...stylex.props(styles.checkLabel, styles.rowNameCell)}
 											>
-												<CheckText row={row} kind={kind} unsaved={pending} />
+												<CheckText
+													row={row}
+													kind={kind}
+													unsaved={pending}
+													hint={hints.get(row.name)}
+													server={server.label}
+												/>
 											</div>
 											<IconActions
 												items={rowMenu(row)}
@@ -1888,7 +2024,92 @@ function AgentAccessView({
 									: `${server.label} offers no ${label.many}.`}
 						</p>
 					)}
-					{addForm}
+					<div {...stylex.props(styles.moreOptions)}>
+						<button
+							type="button"
+							aria-expanded={optionsOpen}
+							aria-controls={`${id}-more`}
+							onClick={() => setOptionsOpen((open) => !open)}
+							{...stylex.props(styles.moreToggle)}
+						>
+							<CaretRightIcon
+								size={14}
+								aria-hidden="true"
+								{...stylex.props(
+									styles.moreCaret,
+									optionsOpen && styles.moreCaretOpen,
+								)}
+							/>
+							More options
+							<span {...stylex.props(styles.moreSummary)}>
+								“{fullShort}” and adding a {label.one} by name
+							</span>
+						</button>
+						<div
+							id={`${id}-more`}
+							hidden={!optionsOpen}
+							{...stylex.props(
+								styles.moreBody,
+								!optionsOpen && styles.collapsed,
+							)}
+						>
+							<label
+								title={
+									inheritedFull
+										? "Included through Everyone"
+										: `Allow every tool, resource and prompt on ${server.label} for ${who}, including ones added later`
+								}
+								{...stylex.props(styles.agentFull)}
+							>
+								<Checkbox
+									checked={rules.full || inheritedFull}
+									disabled={busy || inheritedFull}
+									inherited={inheritedFull}
+									// Starts with the visible text so voice control can still find it.
+									aria-label={`${fullLabel}: allow every tool, resource and prompt on ${server.label} for ${who}`}
+									onCheckedChange={(full) =>
+										onEdit((current) => setFull(current, full))
+									}
+								/>
+								{fullLabel}
+							</label>
+							{addForm}
+						</div>
+					</div>
+					{builtIns.length ? (
+						<section
+							aria-labelledby={`${id}-builtin`}
+							{...stylex.props(styles.builtIn)}
+						>
+							<h3 id={`${id}-builtin`} {...stylex.props(styles.builtInBand)}>
+								Built into Toolstile
+								<span {...stylex.props(styles.builtInCount)}>
+									· {builtIns.length}
+								</span>
+							</h3>
+							<p {...stylex.props(styles.builtInNote)}>
+								Every connected agent has these. They are read-only and are not
+								part of any connection.
+							</p>
+							<ul {...stylex.props(styles.checklist)}>
+								{builtIns.map((tool) => (
+									<li key={tool.name} {...stylex.props(styles.checkRow)}>
+										<span {...stylex.props(styles.rowText)}>
+											<code title={tool.name} {...stylex.props(styles.rowName)}>
+												{tool.name}
+											</code>
+											<span {...stylex.props(styles.builtInReads)}>
+												{tool.reads}
+											</span>
+										</span>
+										<span {...stylex.props(styles.builtInState)}>
+											Always available
+										</span>
+									</li>
+								))}
+							</ul>
+						</section>
+					) : null}
 				</div>
 			</div>
 			<aside
@@ -2175,12 +2396,23 @@ function CheckText({
 	row,
 	kind,
 	unsaved = false,
+	hint,
+	server,
 }: {
 	row: CapabilityRow;
 	kind: Capability;
 	/** Typed in by hand and not kept by any rule yet. */
 	unsaved?: boolean;
+	/** What the server declares about this tool; a tag only, never a default. */
+	hint?: ToolHint;
+	/** The connection's name, for the hint's source. */
+	server?: string;
 }) {
+	const declared = hint?.destructive
+		? "Destructive"
+		: hint?.readOnly
+			? "Read-only"
+			: null;
 	return (
 		<span {...stylex.props(styles.rowText)}>
 			<RowName name={row.name} split={kind === "resources"} />
@@ -2200,8 +2432,129 @@ function CheckText({
 				<span {...stylex.props(styles.rowTag, styles.rowWarning)}>
 					Not offered by this server now
 				</span>
+			) : declared ? (
+				<span
+					title={`Declared by ${server ?? "this server"}. Toolstile does not verify it.`}
+					{...stylex.props(
+						styles.rowTag,
+						declared === "Destructive" && styles.rowWarning,
+					)}
+				>
+					{declared}
+				</span>
 			) : null}
 		</span>
+	);
+}
+
+/**
+ * The empty state for an agent that reaches nothing saved on a connection: one button stages
+ * Allow for every tool listed now. It never saves; the save bar applies the draft. The band
+ * stays in place once staged and reports the draft's counts instead.
+ */
+function FirstGrant({
+	grant,
+	server,
+	agent,
+	busy,
+}: {
+	grant: FirstGrantState;
+	server: string;
+	agent: string;
+	busy: boolean;
+}) {
+	const statusRef = useRef<HTMLParagraphElement>(null);
+	const moveFocus = useRef(false);
+	// The button leaves with the click, so focus moves to the line that now says what changed.
+	useEffect(() => {
+		if (grant.staged && moveFocus.current) {
+			moveFocus.current = false;
+			statusRef.current?.focus({ preventScroll: true });
+		}
+	}, [grant.staged]);
+	const { total, allowed, approval } = grant;
+	const tools = `${server} ${total === 1 ? "tool" : "tools"}`;
+	const set = allowed + approval;
+	const require = `${approval} ${approval === 1 ? "requires" : "require"} approval`;
+	const status = !grant.staged
+		? `${agent} can’t use ${server} yet.`
+		: grant.full
+			? `Everything on ${server} set to Allowed for ${agent}, including tools added later. Not saved yet.`
+			: !set
+				? `${agent} still can’t use ${server}. Your changes are not saved yet.`
+				: !approval
+					? `${allowed} of ${total} ${tools} set to Allowed for ${agent}. Not saved yet.`
+					: !allowed
+						? `${approval} of ${total} ${tools} set to Requires approval for ${agent}. Not saved yet.`
+						: `${set} of ${total} ${tools} set for ${agent}: ${allowed} allowed, ${require}. Not saved yet.`;
+	const action =
+		total === 1
+			? `Allow the 1 ${server} tool for ${agent}`
+			: `Allow all ${total} ${server} tools for ${agent}`;
+	return (
+		<section
+			aria-label={`Access for ${agent} on ${server}`}
+			{...stylex.props(styles.firstGrant)}
+		>
+			<div {...stylex.props(styles.firstGrantText)}>
+				<p
+					ref={statusRef}
+					tabIndex={-1}
+					aria-live="polite"
+					{...stylex.props(styles.firstGrantTitle)}
+				>
+					{status}
+				</p>
+				<p {...stylex.props(styles.firstGrantDetail)}>
+					{/* Both states end with the same sentence, so the band keeps its height on staging. */}
+					{grant.staged
+						? "Save to apply it, or adjust tool by tool below first."
+						: `Allow its ${plural(total, "tool")} now, or choose tool by tool below.`}
+					{grant.full
+						? null
+						: ` Tools ${server} adds later stay off until you allow them.`}
+				</p>
+			</div>
+			{grant.staged ? (
+				// The same slot as the first button, so the next step is under the pointer and the
+				// list below does not move. The save bar offers the same two actions.
+				<span {...stylex.props(styles.firstGrantActions)}>
+					<button
+						type="button"
+						disabled={busy || !grant.canSave}
+						onClick={grant.save}
+						{...stylex.props(controls.button, controls.primary)}
+					>
+						{busy ? "Saving…" : "Save changes"}
+					</button>
+					<button
+						type="button"
+						disabled={busy}
+						onClick={grant.discard}
+						{...stylex.props(controls.button, controls.quiet)}
+					>
+						Discard
+					</button>
+				</span>
+			) : (
+				<button
+					type="button"
+					disabled={busy}
+					onClick={() => {
+						moveFocus.current = true;
+						grant.allowAll();
+					}}
+					{...stylex.props(
+						controls.button,
+						controls.primary,
+						styles.firstGrantButton,
+					)}
+				>
+					<CheckIcon size={16} aria-hidden="true" />
+					{action}
+				</button>
+			)}
+		</section>
 	);
 }
 
@@ -2253,6 +2606,14 @@ const spin = stylex.keyframes({
 const slide = stylex.keyframes({
 	from: { left: "-30%" },
 	to: { left: "100%" },
+});
+const saveBarIn = stylex.keyframes({
+	from: { opacity: 0, transform: "translateY(4px)" },
+	to: { opacity: 1, transform: "none" },
+});
+const fadeIn = stylex.keyframes({
+	from: { opacity: 0 },
+	to: { opacity: 1 },
 });
 const pulse = stylex.keyframes({
 	"0%": { opacity: 0.55 },
@@ -2893,13 +3254,22 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: colors.line,
 	},
-	// The same unsaved mark as a grid cell: a dashed action outline.
+	// The same unsaved mark as a grid cell: a dashed action outline. It reaches 8px past the row
+	// on each side (into the list's padding and column gap), so names never touch it and nothing
+	// in the row moves when it appears.
 	checkRowChanged: {
-		borderRadius: geometry.cornerSmall,
-		outlineWidth: 1,
-		outlineStyle: "dashed",
-		outlineColor: colors.action,
-		outlineOffset: -1,
+		"::before": {
+			content: '""',
+			position: "absolute",
+			top: 0,
+			bottom: -1,
+			insetInline: `calc(-1 * ${space.s2})`,
+			borderWidth: 1,
+			borderStyle: "dashed",
+			borderColor: colors.action,
+			borderRadius: geometry.cornerSmall,
+			pointerEvents: "none",
+		},
 	},
 	checkLabel: {
 		display: "flex",
@@ -3261,24 +3631,189 @@ const styles = stylex.create({
 		overflowWrap: "anywhere",
 	},
 	addError: { color: colors.bad },
-	// Stays in view at the bottom of the page while there are unsaved edits.
-	// Takes Refresh's place in the header while edits are unsaved: the same 28px controls,
-	// so the header keeps its height and nothing below it moves.
-	saveGroup: {
+	// Pinned to the panel's bottom while there are unsaved edits: in a bounded panel it closes
+	// the column, and where the page scrolls (phones) it sticks to the viewport's bottom edge.
+	saveBar: {
+		position: "sticky",
+		bottom: 0,
+		zIndex: 1,
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		flexWrap: "wrap",
+		gap: `${space.s1} ${space.s3}`,
+		flexShrink: 0,
+		minHeight: 44,
+		boxSizing: "border-box",
+		paddingBlock: 6,
+		paddingInline: panelInset,
+		backgroundColor: colors.surface,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: colors.line,
+		borderEndStartRadius: { default: 0, [mobile]: geometry.corner },
+		borderEndEndRadius: { default: 0, [mobile]: geometry.corner },
+		animationName: { default: saveBarIn, [reducedMotion]: fadeIn },
+		animationDuration: motion.enter,
+		animationTimingFunction: motion.settle,
+	},
+	saveText: {
+		marginBlock: 0,
+		color: colors.muted,
+		fontSize: 13,
+		lineHeight: "20px",
+		fontVariantNumeric: "tabular-nums",
+	},
+	saveActions: {
 		display: "flex",
 		alignItems: "center",
 		gap: space.s1,
-		flexShrink: 0,
+		marginInlineStart: "auto",
 	},
-	// Phones keep only the buttons so the group stays on the header line.
-	saveText: {
-		display: { default: "block", [mobile]: "none" },
-		marginBlock: 0,
-		marginInlineEnd: space.s1,
+	// One muted line that defines the three states in the page's own words.
+	modeHelp: {
+		margin: 0,
+		marginTop: `calc(-1 * ${space.s1})`,
 		color: colors.muted,
 		fontSize: text.meta,
 		lineHeight: text.metaLeading,
-		fontVariantNumeric: "tabular-nums",
+	},
+	// A flat band inside the panel: tinted, no border or shadow, so it is not another card.
+	firstGrant: {
+		display: "flex",
+		alignItems: "center",
+		flexWrap: "wrap",
+		gap: `${space.s3} ${space.s4}`,
+		paddingBlock: space.s3,
+		paddingInline: space.s4,
+		borderRadius: geometry.corner,
+		backgroundColor: colors.band,
+	},
+	firstGrantText: {
+		display: "grid",
+		gap: space.s0_5,
+		flex: "1 1 280px",
+		minWidth: 0,
+	},
+	firstGrantTitle: {
+		margin: 0,
+		color: colors.text,
+		fontSize: text.body,
+		lineHeight: typeScale.leading13,
+		fontWeight: 500,
+		outline: "none",
+		overflowWrap: "anywhere",
+	},
+	firstGrantDetail: {
+		margin: 0,
+		color: colors.muted,
+		fontSize: 13,
+		lineHeight: "20px",
+		overflowWrap: "anywhere",
+	},
+	firstGrantActions: {
+		display: "flex",
+		alignItems: "center",
+		flexWrap: "wrap",
+		gap: space.s1,
+	},
+	// Long agent and connection names wrap inside the button instead of widening the band.
+	firstGrantButton: {
+		flex: "0 1 auto",
+		maxWidth: "100%",
+		height: "auto",
+		minHeight: size.control,
+		paddingBlock: 6,
+		whiteSpace: "normal",
+		textAlign: "start",
+	},
+	// “Everything” and add-by-name, collapsed under one quiet toggle at the end of the list.
+	moreOptions: { display: "grid", gap: space.s2, minWidth: 0 },
+	moreToggle: {
+		display: "inline-flex",
+		alignItems: "center",
+		flexWrap: "wrap",
+		justifySelf: "start",
+		columnGap: space.s2,
+		rowGap: 0,
+		maxWidth: "100%",
+		minHeight: size.control,
+		marginInlineStart: `calc(-1 * ${space.s2})`,
+		paddingBlock: space.s1,
+		paddingInline: space.s2,
+		borderWidth: 0,
+		borderRadius: geometry.corner,
+		backgroundColor: {
+			default: "transparent",
+			":hover": colors.hoverOverlay,
+			":focus-visible": colors.hoverOverlay,
+		},
+		outline: "none",
+		color: colors.text,
+		fontFamily: geometry.fontSans,
+		fontSize: 13,
+		lineHeight: "20px",
+		fontWeight: 500,
+		textAlign: "start",
+		cursor: "pointer",
+		transitionProperty: {
+			default: "background-color",
+			[reducedMotion]: "none",
+		},
+		transitionDuration: motion.base,
+		transitionTimingFunction: motion.easeOut,
+	},
+	moreCaret: {
+		flexShrink: 0,
+		color: colors.muted,
+		transitionProperty: { default: "transform", [reducedMotion]: "none" },
+		transitionDuration: motion.base,
+		transitionTimingFunction: motion.easeOut,
+	},
+	moreCaretOpen: { transform: "rotate(90deg)" },
+	moreSummary: { color: colors.muted, fontWeight: 400 },
+	moreBody: {
+		display: "grid",
+		justifyItems: "start",
+		gap: space.s2,
+		minWidth: 0,
+		paddingInlineStart: space.s4,
+	},
+	collapsed: { display: "none" },
+	// Toolstile's own tools: a 32px band header, one sentence, then rows in the list's layout.
+	builtIn: { display: "grid", gap: space.s2, minWidth: 0 },
+	builtInBand: {
+		display: "flex",
+		alignItems: "center",
+		gap: 6,
+		minHeight: 32,
+		margin: 0,
+		paddingInline: space.s3,
+		borderRadius: geometry.corner,
+		backgroundColor: colors.band,
+		color: colors.muted,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
+		fontWeight: 500,
+	},
+	builtInCount: { fontWeight: 400, fontVariantNumeric: "tabular-nums" },
+	builtInNote: {
+		margin: 0,
+		color: colors.muted,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
+	},
+	builtInReads: {
+		color: colors.muted,
+		fontSize: 13,
+		lineHeight: "20px",
+	},
+	// Where a tool's mode chip sits: a plain label, not a control.
+	builtInState: {
+		flexShrink: 0,
+		color: colors.muted,
+		fontSize: text.meta,
+		lineHeight: text.metaLeading,
 		whiteSpace: "nowrap",
 	},
 });
