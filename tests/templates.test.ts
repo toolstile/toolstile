@@ -260,6 +260,29 @@ it.each([200, 400, 404, 501])(
 	},
 );
 
+it("lists only true read-only and destructive hints, for display", async () => {
+	const { runtime, upstream } = optionalTemplateFixture(
+		200,
+		"resources/templates/list",
+		-32601,
+		[
+			{ name: "read", annotations: { readOnlyHint: true } },
+			{ name: "erase", annotations: { destructiveHint: true } },
+			{
+				name: "declared",
+				annotations: { readOnlyHint: false, destructiveHint: false },
+			},
+			{ name: "plain" },
+		],
+	);
+	const result = await inspect(runtime, upstream);
+	expect(result.tools).toEqual(["read", "erase", "declared", "plain"]);
+	expect(result.hints).toEqual([
+		{ name: "read", readOnly: true },
+		{ name: "erase", destructive: true },
+	]);
+});
+
 it.each([401, 403, 500])(
 	"does not hide HTTP %i failures as unsupported resource templates",
 	async (status) => {
@@ -308,6 +331,10 @@ function optionalTemplateFixture(
 	status: number,
 	method = "resources/templates/list",
 	code = -32601,
+	tools: {
+		name: string;
+		annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
+	}[] = [{ name: "search" }],
 ) {
 	const rules = emptyRules();
 	rules.full = true;
@@ -343,7 +370,10 @@ function optionalTemplateFixture(
 				{ capabilities: { tools: {}, resources: {}, prompts: {} } },
 			);
 			server.setRequestHandler("tools/list", async () => ({
-				tools: [{ name: "search", inputSchema: { type: "object" } }],
+				tools: tools.map((tool) => ({
+					...tool,
+					inputSchema: { type: "object" },
+				})),
 			}));
 			server.setRequestHandler("resources/list", async () => ({
 				resources: [{ name: "Guide", uri: "docs://guide" }],

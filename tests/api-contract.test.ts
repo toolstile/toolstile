@@ -114,6 +114,7 @@ const services = {
 				...extra,
 			},
 		],
+		hints: [{ name: "tool", readOnly: true, ...extra }],
 		...extra,
 	}),
 	accountStatus: async () => ({
@@ -192,6 +193,7 @@ describe("management response boundaries", () => {
 			descriptions: [
 				{ capability: "tools", name: "tool", description: "Does a thing" },
 			],
+			hints: [{ name: "tool", readOnly: true }],
 		});
 	});
 	it("keeps read response allowlists, including nested fields", async () => {

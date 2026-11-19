@@ -1,5 +1,8 @@
 import {
 	ArrowSquareOutIcon,
+	CaretDownIcon,
+	CaretRightIcon,
+	CaretUpIcon,
 	CheckCircleIcon,
 	KeyIcon,
 	MagnifyingGlassIcon,
@@ -13,37 +16,56 @@ import {
 	type AgentStep,
 	agentAppGroups,
 	agentApps,
+	popularAgentApps,
 } from "./agent-clients";
 import { controls } from "./Control.styles";
 import { ModalFrame } from "./ModalFrame";
 import { Tabs } from "./Primitives";
 import type { SetupClient } from "./setup-contract";
-import { colors, geometry, space, text, typeScale } from "./tokens.stylex";
+import {
+	colors,
+	geometry,
+	motion,
+	space,
+	text,
+	typeScale,
+} from "./tokens.stylex";
 
 /**
- * A host's own way to set up every agent on a computer at once, such as a command-line tool.
- * It becomes the recommended tab for apps that run on a computer.
+ * A host's own way to set up agents on a computer, such as a command-line tool that signs the
+ * computer in once and then configures each app. It becomes the recommended tab for the apps
+ * it lists.
  */
 export type ComputerSetup = {
 	/** Tab label, such as the tool's name. */
 	label: string;
-	/** One line on what the method does. */
+	/** One line on what the method does, true for every app it lists. */
 	description: string;
-	steps: AgentStep[];
+	/** The steps for one chosen app, so commands and wording can name it. */
+	steps(app: { id: SetupClient; label: string }): AgentStep[];
 	/** The apps it sets up; others show only their own steps. */
 	clients: readonly SetupClient[];
 };
 
-type Agent = { id: string; label: string; revoked: boolean };
+type Agent = {
+	id: string;
+	label: string;
+	/** The device it runs on, named on arrival when known. */
+	deviceId?: string;
+	revoked: boolean;
+};
+type Device = { id: string; label: string; revoked: boolean };
 
 /**
  * Choose an agent app, follow its steps, and see it arrive. Signing in from the app creates and
- * names its device and agent; the dialog reloads while it waits and then offers the access
- * editor for the new agent. Apps that cannot sign in through a browser use an agent token.
+ * names its device and agent; with the host's setup the computer signs in first and the agent
+ * follows. The dialog reloads while it waits and then offers the access editor for the new
+ * agent. Apps that cannot sign in through a browser use an agent token.
  */
 export function ConnectAgentDialog({
 	endpoint,
 	agents,
+	devices = [],
 	reload,
 	computerSetup,
 	onClose,
@@ -53,7 +75,9 @@ export function ConnectAgentDialog({
 	endpoint: string;
 	/** The current agents; one that appears after the dialog opens is the new agent. */
 	agents: Agent[];
-	/** Reloads `agents`; called every few seconds while the dialog waits for a sign-in. */
+	/** The current devices; one that appears after the dialog opens has just signed in. */
+	devices?: Device[];
+	/** Reloads `agents` and `devices`; called every few seconds while the dialog waits. */
 	reload(): Promise<void>;
 	computerSetup?: ComputerSetup;
 	onClose(): void;
@@ -67,21 +91,35 @@ export function ConnectAgentDialog({
 	const [app, setApp] = useState<AgentApp | null>(null);
 	const [method, setMethod] = useState<"host" | "app">("host");
 	const [query, setQuery] = useState("");
-	// Agents already shown; any other agent is the new one. Replaced, never mutated, so
+	const [showAll, setShowAll] = useState(false);
+	const [sshOpen, setSshOpen] = useState(false);
+	// Agents and devices already shown; any other one is new. Replaced, never mutated, so
 	// accepting an arrival always re-renders.
 	const [known, setKnown] = useState(
 		() => new Set(agents.map((agent) => agent.id)),
 	);
+	const [knownDevices, setKnownDevices] = useState(
+		() => new Set(devices.map((device) => device.id)),
+	);
 	const arrived = agents.find(
 		(agent) => !agent.revoked && !known.has(agent.id),
 	);
-	const waiting = Boolean(app && app.signIn === "browser" && !arrived);
+	const newDevice = devices.find(
+		(device) => !device.revoked && !knownDevices.has(device.id),
+	);
+	const hostMethod =
+		app && computerSetup?.clients.includes(app.id) ? computerSetup : undefined;
+	const showHost = Boolean(hostMethod && method === "host");
+	const waiting = Boolean(
+		app && !arrived && (showHost || app.signIn === "browser"),
+	);
 	useAgentArrival(waiting, reload);
 	// After each change of view, move focus to the new view so keyboard and screen reader users
 	// follow along: the search field on the picker, the heading elsewhere. The dialog's own
 	// autofocus handles the first view.
 	const heading = useRef<HTMLHeadingElement>(null);
 	const search = useRef<HTMLInputElement>(null);
+	const appList = useRef<HTMLDivElement>(null);
 	const view = arrived ? "arrived" : app ? app.id : "pick";
 	const shownView = useRef(view);
 	useEffect(() => {
@@ -90,16 +128,36 @@ export function ConnectAgentDialog({
 		(view === "pick" ? search.current : heading.current)?.focus();
 	}, [view]);
 
+	// The full list opens above its toggle, so focus moves to its first app; otherwise the next
+	// Tab would skip every app just revealed.
+	useEffect(() => {
+		if (showAll) appList.current?.querySelector("button")?.focus();
+	}, [showAll]);
+
 	const choose = (next: AgentApp | null) => {
 		setApp(next);
 		setMethod("host");
+		setSshOpen(false);
 	};
 	const connectAnother = () => {
 		setKnown(new Set([...known, ...agents.map((agent) => agent.id)]));
+		setKnownDevices(
+			new Set([...knownDevices, ...devices.map((device) => device.id)]),
+		);
 		choose(null);
 	};
 
-	if (arrived)
+	if (arrived) {
+		// Say only what is known: the host's setup configured the agent on a computer, the app
+		// signed itself in, or an agent appeared with no app chosen.
+		const deviceLabel = devices.find(
+			(device) => device.id === arrived.deviceId,
+		)?.label;
+		const title = showHost
+			? `${arrived.label} is set up on ${deviceLabel ?? "this computer"}`
+			: app
+				? `${arrived.label} signed in`
+				: `${arrived.label} was added`;
 		return (
 			<ModalFrame title="Connect an agent" onClose={onClose}>
 				<div {...stylex.props(styles.body)}>
@@ -113,10 +171,12 @@ export function ConnectAgentDialog({
 									aria-hidden="true"
 									{...stylex.props(styles.good)}
 								/>
-								{arrived.label} is connected
+								{title}
 							</h3>
 							<p {...stylex.props(styles.muted)}>
-								It can't use any MCP connections until you give it access.
+								{showHost
+									? `Restart ${arrived.label} if it is running. It can't use any MCP connections until you give it access.`
+									: "It can't use any MCP connections until you give it access."}
 							</p>
 						</div>
 					</div>
@@ -140,12 +200,31 @@ export function ConnectAgentDialog({
 				</footer>
 			</ModalFrame>
 		);
+	}
 
 	if (!app) {
 		const needle = query.trim().toLowerCase();
 		const matches = apps.filter((candidate) =>
 			candidate.label.toLowerCase().includes(needle),
 		);
+		// With no search, the common apps come first and the rest are one step away.
+		const sections: { id: string; label: string; items: AgentApp[] }[] =
+			!needle && !showAll
+				? [
+						{
+							id: "popular",
+							label: "Popular",
+							items: popularAgentApps.flatMap(
+								(client) =>
+									apps.find((candidate) => candidate.id === client) ?? [],
+							),
+						},
+					]
+				: agentAppGroups.map((group) => ({
+						id: group.id,
+						label: group.label,
+						items: matches.filter((candidate) => candidate.group === group.id),
+					}));
 		return (
 			<ModalFrame
 				title="Connect an agent"
@@ -172,42 +251,66 @@ export function ConnectAgentDialog({
 							{...stylex.props(controls.input, styles.searchInput)}
 						/>
 					</div>
-					{agentAppGroups.map((group) => {
-						const items = matches.filter(
-							(candidate) => candidate.group === group.id,
-						);
-						if (!items.length) return null;
-						return (
-							<section
-								key={group.id}
-								aria-labelledby={`${id}-${group.id}`}
-								{...stylex.props(styles.group)}
-							>
-								<h3
-									id={`${id}-${group.id}`}
-									{...stylex.props(styles.groupLabel)}
-								>
-									{group.label}
-								</h3>
-								<ul {...stylex.props(styles.tiles)}>
-									{items.map((candidate) => (
-										<li key={candidate.id} {...stylex.props(styles.tileItem)}>
-											<button
-												type="button"
-												{...stylex.props(styles.tile)}
-												onClick={() => choose(candidate)}
-											>
-												<AppMark client={candidate.id} size={24} />
-												<span {...stylex.props(styles.tileLabel)}>
-													{candidate.label}
-												</span>
-											</button>
-										</li>
-									))}
-								</ul>
-							</section>
-						);
-					})}
+					{sections.some((section) => section.items.length) ? (
+						<div ref={appList} id={`${id}-apps`} {...stylex.props(styles.body)}>
+							{sections.map(({ id: groupId, label, items }) =>
+								items.length ? (
+									<section
+										key={groupId}
+										aria-labelledby={`${id}-${groupId}`}
+										{...stylex.props(styles.group)}
+									>
+										<h3
+											id={`${id}-${groupId}`}
+											{...stylex.props(styles.groupLabel)}
+										>
+											{label}
+										</h3>
+										<ul {...stylex.props(styles.tiles)}>
+											{items.map((candidate) => (
+												<li
+													key={candidate.id}
+													{...stylex.props(styles.tileItem)}
+												>
+													<button
+														type="button"
+														{...stylex.props(styles.tile)}
+														onClick={() => choose(candidate)}
+													>
+														<AppMark client={candidate.id} size={24} />
+														<span {...stylex.props(styles.tileLabel)}>
+															{candidate.label}
+														</span>
+													</button>
+												</li>
+											))}
+										</ul>
+									</section>
+								) : null,
+							)}
+						</div>
+					) : null}
+					{needle ? null : (
+						<button
+							type="button"
+							aria-expanded={showAll}
+							aria-controls={`${id}-apps`}
+							{...stylex.props(
+								controls.button,
+								controls.quiet,
+								controls.small,
+								styles.textToggle,
+							)}
+							onClick={() => setShowAll(!showAll)}
+						>
+							{showAll ? (
+								<CaretUpIcon size={16} aria-hidden="true" />
+							) : (
+								<CaretDownIcon size={16} aria-hidden="true" />
+							)}
+							{showAll ? "Show fewer" : `Show all ${apps.length} apps`}
+						</button>
+					)}
 					{matches.length === 0 ? (
 						<p {...stylex.props(styles.muted)}>
 							No app matches “{query.trim()}”. Any other MCP client can connect
@@ -244,10 +347,6 @@ export function ConnectAgentDialog({
 		);
 	}
 
-	const hostMethod = computerSetup?.clients.includes(app.id)
-		? computerSetup
-		: undefined;
-	const showHost = hostMethod && method === "host";
 	return (
 		<ModalFrame title="Connect an agent" onClose={onClose}>
 			<div {...stylex.props(styles.body)}>
@@ -279,10 +378,13 @@ export function ConnectAgentDialog({
 						]}
 					/>
 				) : null}
-				{showHost ? (
+				{hostMethod && showHost ? (
 					<>
 						<p {...stylex.props(styles.muted)}>{hostMethod.description}</p>
-						<AgentSteps steps={hostMethod.steps} autoFocus />
+						<AgentSteps
+							steps={hostMethod.steps({ id: app.id, label: app.label })}
+							autoFocus
+						/>
 					</>
 				) : (
 					<>
@@ -299,7 +401,35 @@ export function ConnectAgentDialog({
 						) : null}
 						<AgentSteps steps={app.steps} autoFocus={!hostMethod} />
 						{app.remote ? (
-							<p {...stylex.props(styles.muted)}>{app.remote}</p>
+							<div {...stylex.props(styles.disclosure)}>
+								<button
+									type="button"
+									aria-expanded={sshOpen}
+									aria-controls={`${id}-ssh`}
+									{...stylex.props(
+										controls.button,
+										controls.quiet,
+										controls.small,
+										styles.textToggle,
+									)}
+									onClick={() => setSshOpen(!sshOpen)}
+								>
+									<CaretRightIcon
+										size={16}
+										aria-hidden="true"
+										{...stylex.props(styles.caret, sshOpen && styles.caretOpen)}
+									/>
+									Connecting from a machine you reach over SSH?
+								</button>
+								{sshOpen ? (
+									<p
+										id={`${id}-ssh`}
+										{...stylex.props(styles.muted, styles.disclosed)}
+									>
+										{app.remote}
+									</p>
+								) : null}
+							</div>
 						) : null}
 						<p {...stylex.props(styles.muted)}>
 							<a href={app.source} target="_blank" rel="noreferrer">
@@ -308,7 +438,28 @@ export function ConnectAgentDialog({
 						</p>
 					</>
 				)}
-				{app.signIn === "browser" ? (
+				{showHost ? (
+					// The computer signs in first; the agent appears only once it is set up. A computer
+					// that signed in before shows no new device, so with earlier devices only the
+					// agent is awaited.
+					<p role="status" {...stylex.props(styles.waiting)}>
+						{newDevice ? (
+							<CheckCircleIcon
+								size={16}
+								weight="fill"
+								aria-hidden="true"
+								{...stylex.props(styles.good)}
+							/>
+						) : (
+							<span aria-hidden="true" {...stylex.props(styles.pulse)} />
+						)}
+						{newDevice
+							? `${newDevice.label} is signed in. Waiting for ${app.label} to be set up.`
+							: knownDevices.size
+								? `Waiting for ${app.label} to be set up. This updates on its own.`
+								: "Waiting for this computer to sign in. This updates on its own."}
+					</p>
+				) : app.signIn === "browser" ? (
 					<p role="status" {...stylex.props(styles.waiting)}>
 						<span aria-hidden="true" {...stylex.props(styles.pulse)} />
 						Waiting for {app.label} to sign in. This updates on its own.
@@ -386,6 +537,7 @@ function useAgentArrival(active: boolean, reload: () => Promise<void>) {
 }
 
 const coarse = "@media (pointer: coarse)";
+const reducedMotion = "@media (prefers-reduced-motion: reduce)";
 
 const styles = stylex.create({
 	body: { display: "grid", gap: space.s4, minWidth: 0 },
@@ -413,6 +565,29 @@ const styles = stylex.create({
 		outline: "none",
 	},
 	good: { color: colors.good, flexShrink: 0 },
+	// Muted text that reads as a quiet control; the shared quiet ring and wash mark hover and
+	// focus alike, and the text darkens with them. The negative margin aligns the icon with
+	// the text above.
+	textToggle: {
+		justifySelf: "start",
+		marginInlineStart: `calc(-1 * ${space.s2})`,
+		color: {
+			default: colors.muted,
+			":hover": colors.text,
+			":focus-visible": colors.text,
+		},
+		fontWeight: 400,
+		textAlign: "start",
+	},
+	disclosure: { display: "grid", gap: space.s1, minWidth: 0 },
+	disclosed: { paddingInlineStart: space.s5 },
+	caret: {
+		flexShrink: 0,
+		transitionProperty: { default: "transform", [reducedMotion]: "none" },
+		transitionDuration: motion.base,
+		transitionTimingFunction: motion.easeOut,
+	},
+	caretOpen: { transform: "rotate(90deg)" },
 	search: { position: "relative" },
 	searchIcon: {
 		position: "absolute",

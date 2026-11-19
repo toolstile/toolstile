@@ -332,6 +332,16 @@ export const verificationView = z.object({
 			}),
 		)
 		.optional(),
+	/** What the upstream server declares about a tool. Not verified. */
+	hints: z
+		.array(
+			z.object({
+				name: z.string(),
+				readOnly: z.boolean().optional(),
+				destructive: z.boolean().optional(),
+			}),
+		)
+		.optional(),
 });
 export type Verification = z.infer<typeof verificationView>;
 export const recoveryCodesView = z.object({ codes: z.array(z.string()) });

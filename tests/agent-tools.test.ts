@@ -4,6 +4,7 @@ import {
 } from "@modelcontextprotocol/client";
 import { expect, it } from "vitest";
 import { agentTools } from "../packages/api/src/agent-tools";
+import { builtInTools } from "../packages/api/src/built-in-tools";
 import type { CatalogEntry } from "../packages/api/src/connectors";
 import {
 	alias,
@@ -104,6 +105,10 @@ it("lists read-only built-in tools to an agent without grants, unmetered", async
 			"get_catalog_entry",
 			"get_my_access",
 		]);
+		// The dashboard's browser-safe list names exactly these tools, in order.
+		expect(tools.map(({ name, title }) => ({ name, title }))).toEqual(
+			builtInTools.map(({ name, title }) => ({ name, title })),
+		);
 		for (const tool of tools)
 			expect(tool.annotations).toMatchObject({
 				readOnlyHint: true,

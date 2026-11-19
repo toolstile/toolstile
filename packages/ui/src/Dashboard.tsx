@@ -1116,6 +1116,7 @@ export function Dashboard({
 					<ConnectAgentDialog
 						endpoint={endpoint ?? `${location.origin}/mcp`}
 						agents={data.agents}
+						devices={data.devices}
 						reload={reload}
 						computerSetup={computerSetup}
 						onClose={() => setConnectOpen(false)}

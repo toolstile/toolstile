@@ -79,7 +79,8 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
-async function mount() {
+async function mount(snapshot: Snapshot = data) {
+	const onDirtyChange = vi.fn();
 	const saveGrant = vi.fn(async () => ({}));
 	const save = vi.fn(async (work: () => Promise<unknown>) => {
 		await work();
@@ -92,7 +93,7 @@ async function mount() {
 	await act(async () => {
 		root?.render(
 			<AccessManager
-				data={data}
+				data={snapshot}
 				api={{ saveGrant } as never}
 				view={{ server: "c1", agent: "a1" }}
 				onViewChange={() => undefined}
@@ -102,15 +103,15 @@ async function mount() {
 				save={save}
 				reload={async () => undefined}
 				renderLink={({ children }) => children}
-				onDirtyChange={() => undefined}
+				onDirtyChange={onDirtyChange}
 				onSignIn={() => undefined}
 				onConnectAgent={() => undefined}
-				connectionAccessSummary={() => ""}
+				connectionAccessSummary={() => "No agent access"}
 				loadStarters={loadStarters}
 			/>,
 		);
 	});
-	return { container, save, saveGrant, loadStarters };
+	return { container, save, saveGrant, loadStarters, onDirtyChange };
 }
 const button = (container: HTMLElement, text: string) => {
 	const found = Array.from(container.querySelectorAll("button")).find(
@@ -167,5 +168,122 @@ describe("applying a starter in the access editor", () => {
 		expect(save).not.toHaveBeenCalled();
 		expect(saveGrant).not.toHaveBeenCalled();
 		expect(mode(container, "read")).toBe("Not allowed");
+	});
+});
+
+describe("granting an agent access for the first time", () => {
+	const fresh: Snapshot = { ...data, grants: [] };
+	const rail = (container: HTMLElement) =>
+		container.querySelector('nav[aria-label="MCP connections"]')?.textContent;
+	const callout = (container: HTMLElement) =>
+		container.querySelector(
+			'section[aria-label="Access for Writer on Tracker"]',
+		);
+
+	it("stages every listed tool as Allowed and saves only on Save changes", async () => {
+		const { container, save, saveGrant } = await mount(fresh);
+		expect(callout(container)?.textContent).toContain(
+			"Writer can’t use Tracker yet.",
+		);
+		expect(
+			container.querySelector('section[aria-label="Unsaved access changes"]'),
+		).toBeNull();
+		await act(async () =>
+			button(container, "Allow all 5 Tracker tools for Writer").click(),
+		);
+		expect(save).not.toHaveBeenCalled();
+		expect(saveGrant).not.toHaveBeenCalled();
+		for (const tool of ["read", "send", "drop", "kept", "other"])
+			expect(mode(container, tool)).toBe("Allowed");
+		// The band stays, reports the draft and offers Save where the first button was.
+		expect(callout(container)?.textContent).toContain(
+			"5 of 5 Tracker tools set to Allowed for Writer. Not saved yet.",
+		);
+		expect(document.activeElement?.textContent).toContain("Not saved yet.");
+		expect(
+			container.querySelector('section[aria-label="Unsaved access changes"]')
+				?.textContent,
+		).toContain("5 changes not saved");
+		expect(
+			Array.from(container.querySelectorAll("button")).filter(
+				(element) => element.textContent === "Save changes",
+			),
+		).toHaveLength(2);
+
+		await act(async () =>
+			Array.from(callout(container)?.querySelectorAll("button") ?? [])
+				.find((element) => element.textContent === "Save changes")
+				?.click(),
+		);
+		expect(saveGrant).toHaveBeenCalledTimes(1);
+		expect(saveGrant).toHaveBeenCalledWith({
+			agentId: "a1",
+			connectionId: "c1",
+			rules: {
+				...emptyRules(),
+				allow: {
+					...emptyRules().allow,
+					tools: ["read", "send", "drop", "kept", "other"],
+				},
+			},
+		});
+	});
+
+	it("words a mixed draft truthfully", async () => {
+		const { container } = await mount(fresh);
+		await act(async () =>
+			button(container, "Allow all 5 Tracker tools for Writer").click(),
+		);
+		const trigger = container.querySelector<HTMLElement>(
+			'[aria-label^="send for Writer on Laptop:"]',
+		);
+		await act(async () => trigger?.click());
+		const approval = Array.from(
+			document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+		).find((item) => item.textContent?.startsWith("Require approval"));
+		await act(async () => approval?.click());
+		expect(callout(container)?.textContent).toContain(
+			"5 of 5 Tracker tools set for Writer: 4 allowed, 1 requires approval. Not saved yet.",
+		);
+	});
+
+	it("says the open connection has unsaved changes until they are discarded", async () => {
+		const { container, onDirtyChange } = await mount(fresh);
+		expect(rail(container)).toContain("No agent access · 5 tools");
+		await act(async () =>
+			button(container, "Allow all 5 Tracker tools for Writer").click(),
+		);
+		expect(rail(container)).toContain("Unsaved changes · 5 tools");
+		expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+		await act(async () => button(container, "Discard").click());
+		expect(rail(container)).toContain("No agent access · 5 tools");
+		expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+		expect(callout(container)?.textContent).toContain(
+			"Writer can’t use Tracker yet.",
+		);
+	});
+
+	it("opens More options when “Everything” turns on", async () => {
+		const { container } = await mount();
+		const toggle = button(container, "More options");
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => toggle.click());
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+		await act(async () => toggle.click());
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+		// A change elsewhere that turns on “Everything” opens it again.
+		await act(async () =>
+			container
+				.querySelector<HTMLElement>(
+					'[aria-label="Change access for every agent on Laptop"]',
+				)
+				?.click(),
+		);
+		const everything = Array.from(
+			document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		).find((item) => item.textContent === "Allow everything for each agent");
+		expect(everything).toBeDefined();
+		await act(async () => everything?.click());
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
 	});
 });

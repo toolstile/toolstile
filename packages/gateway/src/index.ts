@@ -1046,6 +1046,19 @@ async function inspectCatalog(runtime: Runtime, upstream: Upstream) {
 				.filter(([kind]) => kind === "resources")
 				.map(([, name]) => name),
 			prompts: prompts.map((item) => catalogField(item, "name")),
+			// What the upstream declares; shown in the access editor only, never used for access.
+			hints: tools.flatMap((item) => {
+				const { readOnlyHint, destructiveHint } = toolAnnotations(item);
+				return readOnlyHint === true || destructiveHint === true
+					? [
+							{
+								name: catalogField(item, "name"),
+								...(readOnlyHint === true ? { readOnly: true } : {}),
+								...(destructiveHint === true ? { destructive: true } : {}),
+							},
+						]
+					: [];
+			}),
 			// Shown beside names in the access editor; long upstream text is cut short.
 			descriptions: entries.flatMap(([capability, name, item]) =>
 				typeof item.description === "string" && item.description.trim()
@@ -1088,18 +1101,30 @@ function listingText(value: unknown, max: number) {
 	const text = value.trim();
 	return text ? text.slice(0, max) : undefined;
 }
+const annotationHints = [
+	"readOnlyHint",
+	"destructiveHint",
+	"idempotentHint",
+	"openWorldHint",
+] as const;
+/** The boolean annotation hints an upstream tool declares; anything else is ignored. */
+function toolAnnotations(item: CatalogEntry) {
+	const raw =
+		item.annotations && typeof item.annotations === "object"
+			? (item.annotations as Record<string, unknown>)
+			: {};
+	return Object.fromEntries(
+		annotationHints.flatMap((hint) =>
+			typeof raw[hint] === "boolean" ? [[hint, raw[hint]]] : [],
+		),
+	) as NonNullable<CatalogListing["tools"][number]["annotations"]>;
+}
 function catalogInventory(
 	tools: CatalogEntry[],
 	resources: CatalogEntry[],
 	templates: CatalogEntry[],
 	prompts: CatalogEntry[],
 ): CatalogListing {
-	const hints = [
-		"readOnlyHint",
-		"destructiveHint",
-		"idempotentHint",
-		"openWorldHint",
-	] as const;
 	const named = <T extends { name: string }>(items: (T | undefined)[]) =>
 		items.filter((item): item is T => !!item?.name).slice(0, 1000);
 	return {
@@ -1107,15 +1132,7 @@ function catalogInventory(
 			tools.map((item) => {
 				const name = listingText(item.name, 200);
 				if (!name) return undefined;
-				const raw =
-					item.annotations && typeof item.annotations === "object"
-						? (item.annotations as Record<string, unknown>)
-						: {};
-				const annotations = Object.fromEntries(
-					hints.flatMap((hint) =>
-						typeof raw[hint] === "boolean" ? [[hint, raw[hint]]] : [],
-					),
-				);
+				const annotations = toolAnnotations(item);
 				return {
 					name,
 					...optional("title", listingText(item.title, 200)),

@@ -198,6 +198,243 @@ describe("access grid tool cells", () => {
 		);
 	});
 
+	const noAccess: Snapshot = { ...data, grants: [] };
+	it("offers a first grant only to an agent that reaches nothing saved", () => {
+		const html = render(ready, noAccess);
+		expect(html).toContain("Writer can’t use Mail yet.");
+		expect(html).toContain(
+			"Allow its 3 tools now, or choose tool by tool below. Tools Mail adds later stay off until you allow them.",
+		);
+		expect(html).toContain("Allow all 3 Mail tools for Writer</button>");
+		expect(html).toContain('aria-label="Access for Writer on Mail"');
+		// Writer already reaches tools here.
+		expect(render()).not.toContain("can’t use Mail yet");
+		// One tool reads in the singular.
+		expect(
+			render({ ...ready, data: { ...ready.data, tools: ["read"] } }, noAccess),
+		).toContain("Allow the 1 Mail tool for Writer</button>");
+		// Access inherited from Everyone counts as access.
+		const inherited = renderToStaticMarkup(
+			<AccessManager
+				data={{
+					...noAccess,
+					allAgentGrants: [
+						{ connectionId: "c1", rules: rules({ allow: tools(["read"]) }) },
+					],
+				}}
+				api={{} as never}
+				everyone={{} as never}
+				view={{ server: "c1", agent: "a1" }}
+				onViewChange={() => undefined}
+				catalogs={{ c1: ready }}
+				loadCatalog={() => undefined}
+				busy={false}
+				save={async () => true}
+				reload={async () => undefined}
+				renderLink={({ children }) => children}
+				onDirtyChange={() => undefined}
+				onSignIn={() => undefined}
+				onConnectAgent={() => undefined}
+				connectionAccessSummary={() => ""}
+			/>,
+		);
+		expect(inherited).not.toContain("can’t use Mail yet");
+		expect(inherited).toContain("Unset tools follow Everyone.");
+	});
+
+	const withEveryone = (everyoneRules: Rules, own?: Rules) =>
+		renderToStaticMarkup(
+			<AccessManager
+				data={{
+					...noAccess,
+					grants: own
+						? [{ agentId: "a1", connectionId: "c1", rules: own }]
+						: [],
+					allAgentGrants: [{ connectionId: "c1", rules: everyoneRules }],
+				}}
+				api={{} as never}
+				everyone={{} as never}
+				view={{ server: "c1", agent: "a1" }}
+				onViewChange={() => undefined}
+				catalogs={{ c1: ready }}
+				loadCatalog={() => undefined}
+				busy={false}
+				save={async () => true}
+				reload={async () => undefined}
+				renderLink={({ children }) => children}
+				onDirtyChange={() => undefined}
+				onSignIn={() => undefined}
+				onConnectAgent={() => undefined}
+				connectionAccessSummary={() => ""}
+			/>,
+		);
+	it("offers only the tools Everyone does not block, and none when all are blocked", () => {
+		const some = withEveryone(
+			rules({ block: { tools: ["drop"], resources: [], prompts: [] } }),
+		);
+		expect(some).toContain("Allow all 2 Mail tools for Writer</button>");
+		expect(some).toContain("1 set under Everyone stays as set there.");
+		const all = withEveryone(
+			rules({
+				block: { tools: ["read", "send", "drop"], resources: [], prompts: [] },
+			}),
+		);
+		expect(all).toContain("Every tool here is set under Everyone.");
+		expect(all).not.toContain("Mail tools for Writer</button>");
+	});
+
+	it("leaves out a tool the agent blocks while Everyone requires approval", () => {
+		const html = withEveryone(
+			rules({ requireApproval: ["read"] }),
+			rules({ block: { tools: ["read"], resources: [], prompts: [] } }),
+		);
+		expect(html).toContain("Writer can’t use Mail yet.");
+		expect(html).toContain("Allow all 2 Mail tools for Writer</button>");
+	});
+
+	it("does not call saved resource access no access", () => {
+		expect(
+			withEveryone(
+				rules({}),
+				rules({
+					allow: { tools: [], resources: ["file:///a"], prompts: [] },
+				}),
+			),
+		).not.toContain("can’t use Mail yet");
+	});
+
+	it("never offers the first grant to Everyone or under a filter", () => {
+		const everyoneView = renderToStaticMarkup(
+			<AccessManager
+				data={noAccess}
+				api={{} as never}
+				everyone={{} as never}
+				view={{ server: "c1", agent: "everyone" }}
+				onViewChange={() => undefined}
+				catalogs={{ c1: ready }}
+				loadCatalog={() => undefined}
+				busy={false}
+				save={async () => true}
+				reload={async () => undefined}
+				renderLink={({ children }) => children}
+				onDirtyChange={() => undefined}
+				onSignIn={() => undefined}
+				onConnectAgent={() => undefined}
+				connectionAccessSummary={() => ""}
+			/>,
+		);
+		expect(everyoneView).not.toContain("can’t use");
+		expect(everyoneView).toContain("Unset tools are left to each agent.");
+		const filtered = renderToStaticMarkup(
+			<AccessManager
+				data={noAccess}
+				api={{} as never}
+				view={{ server: "c1", query: "re" }}
+				onViewChange={() => undefined}
+				catalogs={{ c1: ready }}
+				loadCatalog={() => undefined}
+				busy={false}
+				save={async () => true}
+				reload={async () => undefined}
+				renderLink={({ children }) => children}
+				onDirtyChange={() => undefined}
+				onSignIn={() => undefined}
+				onConnectAgent={() => undefined}
+				connectionAccessSummary={() => ""}
+			/>,
+		);
+		expect(filtered).not.toContain("can’t use");
+	});
+
+	it("explains the three states in one line, true for inherited access", () => {
+		expect(render()).toContain(
+			"Allow runs without review. Ask requires approval for each call. Unset tools are not allowed.",
+		);
+		const full: Snapshot = {
+			...data,
+			grants: [
+				{ agentId: "a1", connectionId: "c1", rules: rules({ full: true }) },
+			],
+		};
+		expect(render(ready, full)).toContain(
+			"“Everything” allows unset tools unless Everyone blocks them or requires approval.",
+		);
+	});
+
+	it("keeps “Everything” and add-by-name under More options, open while in use", () => {
+		const closed = render();
+		expect(closed).toMatch(/aria-expanded="false"[^>]*>.*More options/);
+		expect(closed).toMatch(/id="[^"]*-more" hidden=""/);
+		const full: Snapshot = {
+			...data,
+			grants: [
+				{ agentId: "a1", connectionId: "c1", rules: rules({ full: true }) },
+			],
+		};
+		expect(render(ready, full)).toMatch(
+			/aria-expanded="true"[^>]*>.*More options/,
+		);
+		// Adding by name is the only way in while the list is not loaded.
+		expect(
+			render({ status: "error", message: "Internal server error" }),
+		).toMatch(/aria-expanded="true"[^>]*>.*More options/);
+		// The agent head keeps its focus target.
+		expect(closed).toContain('id="access-agent-a1" tabindex="-1"');
+	});
+
+	it("lists Toolstile's built-in tools apart from the connection's", () => {
+		const html = render();
+		expect(html).toContain("Built into Toolstile");
+		for (const name of ["search_catalog", "get_catalog_entry", "get_my_access"])
+			expect(html).toContain(`>${name}</code>`);
+		expect(html).toContain(
+			"Every connected agent has these. They are read-only and are not part of any connection.",
+		);
+		expect(html.match(/Always available/g)).toHaveLength(3);
+		// They are not counted with the connection's tools.
+		expect(html).toContain("Tools 3");
+		// They are not on the resources tab.
+		const resources = renderToStaticMarkup(
+			<AccessManager
+				data={data}
+				api={{} as never}
+				view={{ server: "c1", capability: "resources" }}
+				onViewChange={() => undefined}
+				catalogs={{ c1: ready }}
+				loadCatalog={() => undefined}
+				busy={false}
+				save={async () => true}
+				reload={async () => undefined}
+				renderLink={({ children }) => children}
+				onDirtyChange={() => undefined}
+				onSignIn={() => undefined}
+				onConnectAgent={() => undefined}
+				connectionAccessSummary={() => ""}
+			/>,
+		);
+		expect(resources).not.toContain("Built into Toolstile");
+	});
+
+	it("tags tools with what the server declares, without changing access", () => {
+		const html = render({
+			...ready,
+			data: {
+				...ready.data,
+				hints: [
+					{ name: "read", readOnly: true },
+					{ name: "drop", destructive: true },
+				],
+			},
+		});
+		expect(html).toContain(
+			'title="Declared by Mail. Toolstile does not verify it.">Read-only</span>',
+		);
+		expect(html).toContain(">Destructive</span>");
+		expect(html).toContain(
+			'aria-label="drop for Writer on Laptop: Not allowed"',
+		);
+	});
+
 	it("shows a failed catalog in plain words with a next step", () => {
 		const html = render({ status: "error", message: "Internal server error" });
 		expect(html).not.toContain("Internal server error");
