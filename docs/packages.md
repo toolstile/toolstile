@@ -24,7 +24,7 @@ oRPC contracts, routers and clients for the management API.
 
 ## `@toolstile/auth`
 
-`.` (server): Better Auth setup (`createAuth`), the agent OAuth provider with PKCE and consent, upstream OAuth flow storage, the AES-256-GCM `secretBox` used for stored credentials, token issuing and digests, and email helpers. See [packages/auth/README.md](../packages/auth/README.md).
+`.` (server): Better Auth setup (`createAuth`), CLI device sign-in and the `/api/cli` handler (`cliDevicePlugins`, `createCliHttpHandler`), the agent OAuth provider with PKCE and consent, upstream OAuth flow storage, the AES-256-GCM `secretBox` used for stored credentials, token issuing and digests, and email helpers. See [packages/auth/README.md](../packages/auth/README.md).
 
 ## `@toolstile/database`
 
@@ -44,4 +44,4 @@ The application owns its current PostgreSQL migration history in `apps/web/postg
 
 ## `@toolstile/ui`
 
-React components and StyleX styles, all browser-safe. `.` exports common components; subpaths are `./shell`, `./select`, `./controls`, `./layout`, `./tokens.stylex`, `./styles.css`, `./brand`, `./theme-switcher`, `./appearance`, `./setup`, `./setup-contract`, `./connections-page`, `./devices-page`, `./access-page`, `./activity-page`, `./connections-navigation`, `./connector-logo`, `./approvals`, `./tool-reviews`, `./connectors`, `./toast`, `./markdown`, `./status-badge`, `./url-text`, `./checkbox`, `./auth-loading`, `./auth-navigation`, `./account-navigation`, `./account-session` and `./account-gate`. React and React DOM are peer dependencies; consumers must compile StyleX in their build.
+React components and StyleX styles, all browser-safe. `.` exports common components; subpaths are `./shell`, `./select`, `./controls`, `./layout`, `./tokens.stylex`, `./styles.css`, `./brand`, `./theme-switcher`, `./appearance`, `./setup`, `./setup-contract`, `./connections-page`, `./devices-page`, `./access-page`, `./activity-page`, `./connections-navigation`, `./connector-logo`, `./approvals`, `./tool-reviews`, `./connectors`, `./toast`, `./markdown`, `./status-badge`, `./url-text`, `./checkbox`, `./auth-loading`, `./device-approval`, `./auth-navigation`, `./account-navigation`, `./account-session` and `./account-gate`. React and React DOM are peer dependencies; consumers must compile StyleX in their build.

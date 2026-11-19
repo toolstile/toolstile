@@ -39,6 +39,7 @@ import {
 	createAgentConsentHandler,
 	createAuth,
 	createBrowserDeviceStore,
+	createCliHttpHandler,
 	createMcpHttpHandler,
 	createOAuthClientNameResolver,
 	createOAuthSelectionStore,
@@ -274,6 +275,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 				await oauthAuthorization(userId, referenceId);
 			},
 		},
+		cliDevices: { pool, verificationUri: "/auth/device" },
 	});
 	const mcpGateway = options.gateway ?? createMcpGateway();
 	async function revokeMcp(key: string) {
@@ -1721,6 +1723,56 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		},
 		selection: oauthSelection,
 	});
+	/** `toolstile auth login` and `toolstile mcp setup`: each account's own devices and agents. */
+	const handleCli = createCliHttpHandler({
+		auth,
+		pool,
+		origin: env.BETTER_AUTH_URL,
+		secret: env.BETTER_AUTH_SECRET,
+		mcpUrl: `${env.BETTER_AUTH_URL}/mcp`,
+		services,
+		// Requests act for the signed-in account; other parameters are ignored.
+		actor: (request) => actorFromRequest(request),
+		approver: async (session) => {
+			await active(session.user.id);
+			return {
+				userId: session.user.id,
+				scopeId: session.user.id,
+				sessionId: session.session.id,
+			};
+		},
+		// The CLI reads one response shape from every server; accounts here have no workspaces.
+		account: async (session) => {
+			await active(session.user.id);
+			return { edition: "self-hosted", workspaces: [] };
+		},
+		fences: (actor) => [accountFence(actor.userId)],
+		agents: {
+			async list(actor, deviceId) {
+				const { rows } = await pool.query<{ id: string; label: string }>(
+					`select a.id,a.label from agents a join authorizations z on z."agentId"=a.id join devices d on d.id=a."deviceId"
+					where a."ownerId"=$1 and a."deviceId"=$2 and z."revokedAt" is null and d."revokedAt" is null
+					order by a."createdAt",a.id`,
+					[actor.userId, deviceId],
+				);
+				return rows;
+			},
+			async find(actor, id) {
+				const {
+					rows: [row],
+				} = await pool.query<{
+					id: string;
+					label: string;
+					device: string | null;
+				}>(
+					`select a.id,a.label,d.label as device from agents a left join devices d on d.id=a."deviceId"
+					where a.id=$1 and a."ownerId"=$2`,
+					[id, actor.userId],
+				);
+				return row;
+			},
+		},
+	});
 	const upstreamHttp = createUpstreamOAuthHttpHandlers({
 		session: (request) => auth.api.getSession({ headers: request.headers }),
 		metadata: () => upstreamOAuth.metadata(),
@@ -1846,6 +1898,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		handleRpc,
 		gateway,
 		agentOAuth,
+		handleCli,
 		upstreamClientMetadata,
 		upstreamOAuthCallback,
 		runMaintenance,
@@ -1902,6 +1955,9 @@ export const gateway: ReturnType<typeof createInstanceRuntime>["gateway"] = (
 export const agentOAuth: ReturnType<
 	typeof createInstanceRuntime
 >["agentOAuth"] = (...args) => instanceRuntime().agentOAuth(...args);
+export const handleCli: ReturnType<
+	typeof createInstanceRuntime
+>["handleCli"] = (...args) => instanceRuntime().handleCli(...args);
 export const upstreamClientMetadata: ReturnType<
 	typeof createInstanceRuntime
 >["upstreamClientMetadata"] = (...args) =>

@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { APIError, createAuthMiddleware, getOAuthState } from "better-auth/api";
 import { betterAuth } from "better-auth/minimal";
+import { cliDevicePlugins } from "./cli";
 import { type AgentOAuthOptions, agentOAuthPlugins } from "./oauth";
 import {
 	type SessionIssuanceOptions,
@@ -21,6 +22,7 @@ function displayName<T>(value: T): T {
 	return name as T;
 }
 
+export * from "./cli";
 export { digest } from "./digest";
 export * from "./email";
 export * from "./oauth";
@@ -97,7 +99,8 @@ export const SESSION_FRESH_AGE_SECONDS = 600;
  * Library endpoints no screen, command or agent flow uses. They are disabled rather than wrapped:
  * each would change credentials, sessions, identity or OAuth clients outside the application's
  * fenced transactions (password and email changes, session listing and revocation, account
- * linking and deletion, password reset, OAuth client and consent administration).
+ * linking and deletion, password reset, OAuth client and consent administration, and device code
+ * lookup, approval and denial, which `/api/cli/lookup`, `/approve` and `/deny` make instead).
  */
 export const UNUSED_AUTH_PATHS = [
 	"/account-info",
@@ -105,6 +108,9 @@ export const UNUSED_AUTH_PATHS = [
 	"/change-password",
 	"/delete-user",
 	"/delete-user/callback",
+	"/device",
+	"/device/approve",
+	"/device/deny",
 	"/get-access-token",
 	"/link-social",
 	"/list-accounts",
@@ -167,6 +173,8 @@ export function createAuth(options: {
 		token: string;
 	}) => Promise<void>;
 	oauth?: AgentOAuthOptions;
+	/** CLI sign-in through device authorization; see cliDevicePlugins. */
+	cliDevices?: Parameters<typeof cliDevicePlugins>[0];
 }) {
 	if (options.secret.length < 32)
 		throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
@@ -195,7 +203,10 @@ export function createAuth(options: {
 			advanced: { cookiePrefix: options.cookiePrefix ?? "toolstile" },
 			baseURL: options.baseURL,
 			secret: options.secret,
-			plugins: options.oauth ? agentOAuthPlugins(options.oauth) : [],
+			plugins: [
+				...(options.oauth ? agentOAuthPlugins(options.oauth) : []),
+				...(options.cliDevices ? cliDevicePlugins(options.cliDevices) : []),
+			],
 			emailAndPassword: {
 				enabled: true,
 				minPasswordLength: 12,

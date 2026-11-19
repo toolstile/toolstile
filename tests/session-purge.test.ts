@@ -70,6 +70,59 @@ describe.skipIf(!process.env.TEST_BASE_URL)("expired session purge", () => {
 			).rowCount,
 		).toBe(0);
 	});
+	it("purges abandoned CLI sign-in codes and approvals never redeemed", async () => {
+		const q = (text: string, values: unknown[] = []) =>
+			storage.pool.query(text, values);
+		async function code(expiresAt: number) {
+			const id = randomUUID();
+			await q(
+				`insert into device_code(id,"deviceCode","userCode","userId","expiresAt",status) values($1,$2,$3,$4,now() + $5::double precision * interval '1 millisecond','pending')`,
+				[id, randomUUID(), randomUUID(), userId, expiresAt],
+			);
+			return id;
+		}
+		const codes = [
+			await code(-7200000),
+			await code(-1800000),
+			await code(600000),
+		];
+		const deviceId = randomUUID();
+		await q('insert into devices(id,"ownerId",label) values($1,$2,$3)', [
+			deviceId,
+			userId,
+			"CLI box",
+		]);
+		async function link(age: number, sessionId: string | null = null) {
+			const deviceCode = randomUUID();
+			await q(
+				`insert into cli_device_links("deviceCode","userId","deviceId","sessionId","createdAt") values($1,$2,$3,$4,now() - $5::double precision * interval '1 millisecond')`,
+				[deviceCode, userId, deviceId, sessionId, age],
+			);
+			return deviceCode;
+		}
+		const links = [
+			await link(7200000),
+			await link(600000),
+			await link(7200000, await session(86400000)),
+		];
+		// Only sessions count toward the result.
+		expect(await purgeExpiredSessions(storage.pool)).toBe(0);
+		const left = async (table: string, column: string, values: string[]) =>
+			(
+				await q(
+					`select "${column}" as id from ${table} where "${column}" IN (SELECT value FROM jsonb_array_elements_text($1))`,
+					[values],
+				)
+			).rows
+				.map((row) => row.id)
+				.sort();
+		expect(await left("device_code", "id", codes)).toEqual(
+			codes.slice(1).sort(),
+		);
+		expect(await left("cli_device_links", "deviceCode", links)).toEqual(
+			links.slice(1).sort(),
+		);
+	});
 	it("purges unusable OAuth tokens, selections and abandoned registrations", async () => {
 		const q = (text: string, values: unknown[] = []) =>
 			storage.pool.query(text, values);

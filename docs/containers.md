@@ -55,6 +55,7 @@ location / {
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header Connection "";
     proxy_buffering off;
     proxy_cache off;
@@ -63,7 +64,7 @@ location / {
 }
 ```
 
-Manage certificates and HTTP-to-HTTPS redirection in that proxy. Preserve methods GET/POST/DELETE, cookies, authorization, Origin, `Mcp-Session-Id`, `MCP-Protocol-Version`, `Last-Event-ID`, streaming content types and exact query bytes. Do not add caching, body rewriting, redirects or browser challenges to MCP/OAuth routes. Keep proxy timeouts above the intended SSE lifetime and test reconnect. Configure only trusted forwarding headers; this package does not add an IP-based authorization trust mechanism.
+Manage certificates and HTTP-to-HTTPS redirection in that proxy. Preserve methods GET/POST/DELETE, cookies, authorization, Origin, `Mcp-Session-Id`, `MCP-Protocol-Version`, `Last-Event-ID`, streaming content types and exact query bytes. Do not add caching, body rewriting, redirects or browser challenges to MCP/OAuth routes. Keep proxy timeouts above the intended SSE lifetime and test reconnect. Configure only trusted forwarding headers; this package does not add an IP-based authorization trust mechanism. `X-Forwarded-For` set to the connecting address gives each client its own sign-in rate limits; without it, every request shares one limit for the whole instance.
 
 Upstream private-network access is enabled by the application's existing destination policy unless the operator restricts it. Containers can reach adjacent infrastructure. Review instance destination settings and enforce suitable host/network egress controls without bypassing URL/DNS/redirect checks. Never mount a Docker socket, host filesystem or service credentials into the app. Optional SMTP/social credentials may be supplied through your orchestrator's environment management; consult existing account configuration. No external analytics service is enabled by this package.
 

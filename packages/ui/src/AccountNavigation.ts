@@ -12,6 +12,9 @@ const privateParams =
 	/^(?:password|code|token|access_token|refresh_token|id_token|client_secret|secret|sig|invitationToken|payload|capturedPayload)$/i;
 const forbiddenPath =
 	/^\/(?:auth|recover-account|api|oauth|mcp|\.well-known|authorize-agent|consent-agent)(?:\/|$)/i;
+/** The CLI approval page sits under /auth but outside the signed-out account pages, so signing
+ * in can return to it without a loop. */
+const signedInAccountPath = /^\/auth\/device$/;
 
 /** Validate ordinary root-relative page destinations, preserving accepted input bytes. */
 export function validateLocalReturnTo(
@@ -51,7 +54,7 @@ export function validateLocalReturnTo(
 		if (
 			url.origin !== localOrigin ||
 			path.startsWith("//") ||
-			forbiddenPath.test(path)
+			(forbiddenPath.test(path) && !signedInAccountPath.test(path))
 		)
 			return undefined;
 		for (const key of [

@@ -30,6 +30,10 @@ describe("general account navigation", () => {
 		"/app/%2500activity",
 		"/auth/sign-in",
 		"/auth/sign-up?returnTo=%2Fauth%2Fsign-in",
+		"/auth/device/../sign-in",
+		"/auth/device/approve",
+		"/auth/devices",
+		"/AUTH/device",
 		"/recover-account",
 		"/RECOVER-ACCOUNT/code",
 		"/AUTH/sign-in",
@@ -69,6 +73,8 @@ describe("general account navigation", () => {
 		"/app/%2e/activity",
 		"/app/%2525252561ctivity",
 		"/app/authors?tokenizer=ordinary#secretary",
+		// The CLI approval page needs a signed-in account, so sign-in returns to it.
+		"/auth/device?user_code=ABCD-EFGH&device_name=build-box&next=setup",
 		"/",
 	])("retains page, filters, anchors and exact bytes: %s", (target) => {
 		expect(validateLocalReturnTo(target)).toBe(target);
