@@ -828,8 +828,9 @@ const local = stylex.create({
 	// Slow requests (10 s or more) read in the warning colour, with no extra mark.
 	durationSlow: { color: colors.warning },
 	agent: { fontWeight: 500 },
-	// A request opened from a link: the selected-row tint the other record lists use.
-	rowCurrent: { backgroundColor: colors.actionTint },
+	// A request opened from a link: the selected navigation fill, which keeps a clear navy
+	// step on the dark surface where the 12% action tint nearly vanished.
+	rowCurrent: { backgroundColor: colors.navSelected },
 	// The hidden-rows note sits at the footer's end, apart from the count.
 	linkRetry: { display: "inline-flex", alignItems: "center", gap: space.s2 },
 	hidden: {

@@ -658,6 +658,10 @@ export function SetupGuide({
 	const accessSteps = activeAgent
 		? `On the Access page, allow the tools ${activeAgent.label} may use, then select Save changes.`
 		: "";
+	// The dock has two lines for its summary, so it keeps only the action; Details has the rest.
+	const accessDockSteps = activeAgent
+		? "Allow tools, then select Save changes"
+		: "";
 	const agentName = activeAgent?.label ?? "your agent";
 	const firstCall = state.firstCall;
 	// The app to restart: the one the agent's name comes from, else the agent itself, such as a
@@ -748,15 +752,18 @@ export function SetupGuide({
 					</h3>
 				</div>
 				<div {...stylex.props(s.actions)}>
-					<button
-						type="button"
-						{...stylex.props(controls.button, controls.quiet, controls.small)}
-						disabled={busy}
-						aria-label="Skip setup for now"
-						onClick={skip}
-					>
-						Skip
-					</button>
+					{/* Once every step is done, Finish closes the guide; there is nothing to skip. */}
+					{complete ? null : (
+						<button
+							type="button"
+							{...stylex.props(controls.button, controls.quiet, controls.small)}
+							disabled={busy}
+							aria-label="Skip setup for now"
+							onClick={skip}
+						>
+							Skip
+						</button>
+					)}
 					{inDialog ? (
 						<button
 							type="button"
@@ -1174,8 +1181,8 @@ export function SetupGuide({
 							? checkError
 							: !canConfigureAccess && !state.completed.access
 								? "Ask an administrator for access"
-								: accessHint && accessSteps
-									? accessSteps
+								: accessHint && accessDockSteps
+									? accessDockSteps
 									: activeAgent && connection
 										? `Allow ${activeAgent.label} to use ${connection.label}`
 										: "Choose an MCP connection and an agent first";
@@ -1238,16 +1245,18 @@ export function SetupGuide({
 							<span {...stylex.props(layout.visuallyHidden)}>Step </span>
 							{position + 1} of {visibleSteps.length}
 						</span>
-						<button
-							type="button"
-							aria-label="Skip setup for now"
-							title="Skip setup for now"
-							{...stylex.props(s.dockClose)}
-							disabled={busy}
-							onClick={skip}
-						>
-							<XIcon size={14} aria-hidden="true" />
-						</button>
+						{complete ? null : (
+							<button
+								type="button"
+								aria-label="Skip setup for now"
+								title="Skip setup for now"
+								{...stylex.props(s.dockClose)}
+								disabled={busy}
+								onClick={skip}
+							>
+								<XIcon size={14} aria-hidden="true" />
+							</button>
+						)}
 					</div>
 					<div aria-hidden="true" {...stylex.props(s.segments)}>
 						{visibleSteps.map((entry, index) => (

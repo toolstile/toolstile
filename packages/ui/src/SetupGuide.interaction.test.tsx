@@ -307,6 +307,61 @@ describe("guided setup waiting for an agent", () => {
 	});
 });
 
+describe("guided setup giving access", () => {
+	it("keeps the docked step 3 line short after Configure access", async () => {
+		const state: SetupState = {
+			...waiting,
+			step: "access",
+			agentId: "signed-in",
+			completed: { ...waiting.completed, agent: true },
+		};
+		const api: SetupApi = {
+			setupStatus: vi.fn(),
+			setupAgents: vi.fn(async () => ({ agentIds: [] })),
+			saveSetup: vi.fn(),
+			verifySetup: vi.fn(),
+			setupFirstCall: vi.fn(async () => ({ firstCall: null })),
+		};
+		const onConfigureAccess = vi.fn();
+		const container = document.createElement("div");
+		const props = {
+			state,
+			api,
+			data: snapshot([signedIn]),
+			endpoint: "https://toolstile.example/mcp",
+			onState: () => undefined,
+			onDialog: () => undefined,
+			onConfigureAccess,
+			onDone: () => undefined,
+		};
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(<SetupGuide {...props} variant="docked" />),
+		);
+		const summary = () =>
+			container.querySelector('[role="status"]')?.textContent;
+		expect(summary()).toBe("Allow Claude Code to use deepwiki.com");
+		const configure = Array.from(container.querySelectorAll("button")).find(
+			(entry) => entry.textContent === "Configure access",
+		);
+		await act(async () => configure?.click());
+		expect(onConfigureAccess).toHaveBeenCalledWith("c1", "signed-in");
+		// The dock fits the action in its two lines; the full sentence stays in Details.
+		expect(summary()).toBe("Allow tools, then select Save changes");
+		act(() => root?.unmount());
+		root = createRoot(container);
+		await act(async () => root?.render(<SetupGuide {...props} />));
+		await act(async () =>
+			Array.from(container.querySelectorAll("button"))
+				.find((entry) => entry.textContent === "Configure access")
+				?.click(),
+		);
+		expect(container.textContent).toContain(
+			"On the Access page, allow the tools Claude Code may use, then select Save changes.",
+		);
+	});
+});
+
 describe("guided setup waiting for the first call", () => {
 	const agentSnapshot = () => {
 		const data = snapshot([signedIn]);

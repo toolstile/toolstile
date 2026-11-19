@@ -458,6 +458,9 @@ describe("guided setup card", () => {
 		expect(html).toMatch(/<button type="button">Finish/);
 		expect(html).not.toContain("View in Activity");
 		expect(html).toContain("Select Finish to close the guide.");
+		// Every step is done, so Finish is the only way out; there is nothing to skip.
+		expect(html).not.toContain("Skip setup for now");
+		expect(render(verified(), granted())).toContain("Skip setup for now");
 	});
 	it("offers the call in Activity when the host can open it", () => {
 		const html = render(called, granted(), api(), {
@@ -518,6 +521,8 @@ describe("guided setup card", () => {
 		);
 		expect(doneCard).toContain(">View call<");
 		expect(doneCard).not.toContain(">Details<");
+		expect(waitingCard).toContain("Skip setup for now");
+		expect(doneCard).not.toContain("Skip setup for now");
 		expect(docked(called)).toContain(">Details<");
 	});
 });
