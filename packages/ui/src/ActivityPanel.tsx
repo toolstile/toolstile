@@ -344,7 +344,7 @@ export function ActivityPanel({
 							</nav>
 							<label {...stylex.props(local.search)}>
 								<span {...stylex.props(layout.visuallyHidden)}>
-									Search by agent, MCP connection or operation
+									Search by agent, MCP connection or request
 								</span>
 								<MagnifyingGlassIcon
 									size={16}
@@ -355,7 +355,7 @@ export function ActivityPanel({
 									type="search"
 									value={query}
 									maxLength={100}
-									placeholder="Search agent, MCP or operation"
+									placeholder="Search agent, MCP or request"
 									{...stylex.props(controls.input, local.searchInput)}
 									onChange={(event) =>
 										onViewChange(
@@ -395,7 +395,7 @@ export function ActivityPanel({
 												scope="col"
 												{...stylex.props(styles.tableHeader, local.cell)}
 											>
-												Operation
+												Request
 											</th>
 											<th
 												scope="col"
