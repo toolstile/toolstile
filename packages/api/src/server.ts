@@ -48,13 +48,16 @@ export interface Services {
 		id: string,
 	): Promise<z.infer<typeof debugPayloadView>>;
 
+	/** `signal` is the request's; cancelling it stops opening the server. */
 	agentCatalog(
 		actor: Actor,
 		input: z.infer<typeof agentCatalogInput>,
+		signal?: AbortSignal,
 	): Promise<z.infer<typeof agentCatalogView>>;
 	testTool(
 		actor: Actor,
 		input: z.infer<typeof toolTestInput>,
+		signal?: AbortSignal,
 	): Promise<z.infer<typeof toolTestView>>;
 	startConnectionOAuth(
 		actor: Actor,
@@ -98,6 +101,7 @@ export interface Services {
 	verify(
 		actor: Actor,
 		id: string,
+		signal?: AbortSignal,
 	): Promise<{ tools: string[]; resources: string[]; prompts: string[] }>;
 }
 export interface AccountServices {
@@ -151,14 +155,14 @@ export function createCommonRouter() {
 		agentCatalog: procedure
 			.input(agentCatalogInput)
 			.output(agentCatalogView)
-			.handler(({ context, input }) =>
-				context.services.agentCatalog(context.actor, input),
+			.handler(({ context, input, signal }) =>
+				context.services.agentCatalog(context.actor, input, signal),
 			),
 		testTool: procedure
 			.input(toolTestInput)
 			.output(toolTestView)
-			.handler(({ context, input }) =>
-				context.services.testTool(context.actor, input),
+			.handler(({ context, input, signal }) =>
+				context.services.testTool(context.actor, input, signal),
 			),
 		startConnectionOAuth: procedure
 			.input(upstreamOAuthInput)
@@ -256,8 +260,8 @@ export function createCommonRouter() {
 		verify: procedure
 			.input(z.object({ id: z.string() }))
 			.output(verificationView)
-			.handler(({ context, input }) =>
-				context.services.verify(context.actor, input.id),
+			.handler(({ context, input, signal }) =>
+				context.services.verify(context.actor, input.id, signal),
 			),
 	};
 }

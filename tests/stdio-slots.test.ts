@@ -7,11 +7,13 @@ import {
 	CLIENT_INFO_META_KEY,
 	PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
+import { ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import {
 	closeLocalCommands,
 	createMcpGateway,
 	emptyRules,
+	inspect,
 	type LocalCommand,
 	LocalCommandTransport,
 	type Operation,
@@ -47,13 +49,13 @@ const alive = (pid: number) => {
 		return false;
 	}
 };
-const settled = async (promise: Promise<unknown>) => {
+const settled = async (promise: Promise<unknown>, wait = 100) => {
 	let done = false;
 	void promise.then(
 		() => (done = true),
 		() => (done = true),
 	);
-	await new Promise((resolve) => setTimeout(resolve, 100));
+	await new Promise((resolve) => setTimeout(resolve, wait));
 	return done;
 };
 async function fill() {
@@ -257,6 +259,85 @@ it("never starts a local command for a subscription or list-change watch", async
 		await gateway.close();
 	}
 });
+
+it("checks the owner's role after the caller's checks, right before the child starts", async () => {
+	const marker = join(directory, "demoted-late");
+	const upstream = source(sleeper(marker));
+	let operator = true,
+		checks = 0;
+	const runtime: Runtime = {
+		connections: async () => [upstream],
+		admit: async () => {},
+		// Demoted while the caller's access is checked again inside the slot.
+		check: async () => {
+			if (++checks === 2) operator = false;
+		},
+		record: async () => {},
+		validateDestination: async () => {},
+		validateCommand: async () => {
+			if (!operator) throw new Error("Only instance operators");
+		},
+	};
+	await expect(
+		openUpstream(runtime, upstream, "tools/list", undefined, "tools"),
+	).rejects.toThrow("Only instance operators");
+	expect(checks).toBe(2);
+	expect(existsSync(marker)).toBe(false);
+});
+
+it("keeps a slot while a child whose kill failed is still running", async () => {
+	const held = await fill();
+	// A signal the system refuses: Node reports it as an error event on a live child.
+	const kill = vi
+		.spyOn(ChildProcess.prototype, "kill")
+		.mockImplementation(function (this: ChildProcess) {
+			this.emit(
+				"error",
+				Object.assign(new Error("kill EPERM"), { code: "EPERM" }),
+			);
+			return false;
+		});
+	const ninth = new LocalCommandTransport(sleeper(join(directory, "ninth-2")));
+	try {
+		const closing = held[0]?.close();
+		const waiting = ninth.start();
+		// The SDK tries SIGTERM and SIGKILL within about four seconds; both fail.
+		expect(await settled(waiting, 5_000)).toBe(false);
+		kill.mockRestore();
+		held[0]?.kill();
+		await closing;
+		await waiting;
+	} finally {
+		kill.mockRestore();
+		await ninth.close();
+		await Promise.all(held.map((transport) => transport.close()));
+	}
+}, 30_000);
+
+it("never starts a queued command for a dashboard check that was cancelled", async () => {
+	const held = await fill();
+	try {
+		const marker = join(directory, "verify-cancelled");
+		const upstream = source(sleeper(marker));
+		const runtime: Runtime = {
+			connections: async () => [upstream],
+			admit: async () => {},
+			record: async () => {},
+			validateDestination: async () => {},
+			validateCommand: async () => {},
+		};
+		const controller = new AbortController();
+		const checking = inspect(runtime, upstream, controller.signal);
+		expect(await settled(checking)).toBe(false);
+		controller.abort();
+		await expect(checking).rejects.toThrow();
+		await held[0]?.close();
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(existsSync(marker)).toBe(false);
+	} finally {
+		await Promise.all(held.map((transport) => transport.close()));
+	}
+}, 30_000);
 
 it("refuses queued and new starts at shutdown and stops running children", async () => {
 	const held = await fill();

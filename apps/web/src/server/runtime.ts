@@ -857,13 +857,19 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			});
 			await revokeUserConnections(actor.userId);
 		},
-		async agentCatalog(actor, input) {
+		async agentCatalog(actor, input, signal?: AbortSignal) {
 			const { current, upstream } = await toolTestContext(actor, input);
-			return { tools: await agentToolCatalog(current, upstream) };
+			return { tools: await agentToolCatalog(current, upstream, signal) };
 		},
-		async testTool(actor, input) {
+		async testTool(actor, input, signal?: AbortSignal) {
 			const { current, upstream } = await toolTestContext(actor, input);
-			return testAgentTool(current, upstream, input.name, input.arguments);
+			return testAgentTool(
+				current,
+				upstream,
+				input.name,
+				input.arguments,
+				signal,
+			);
 		},
 		async startConnectionOAuth(actor, input) {
 			if (!actor.sessionId) throw new ORPCError("UNAUTHORIZED");
@@ -1160,11 +1166,15 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			});
 			await revokeMcp(`${actor.userId}:${input.agentId}`);
 		},
-		async verify(actor, id) {
+		async verify(actor, id, signal?: AbortSignal) {
 			const connection = await inspectionUpstream(actor, id);
 			const runtime = userRuntime(actor, "Dashboard", undefined, id);
 			try {
-				const { inventory: _, ...result } = await inspect(runtime, connection);
+				const { inventory: _, ...result } = await inspect(
+					runtime,
+					connection,
+					signal,
+				);
 				// Sign-in states change only through sign-in; see connection-status.ts.
 				await db
 					.update(connections)

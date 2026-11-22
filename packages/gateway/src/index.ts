@@ -688,11 +688,12 @@ export async function openUpstream(
 				// A request cancelled while it waits for a slot never starts the command.
 				signal:
 					signal ?? (interactionOptions() as { signal?: AbortSignal }).signal,
-				// Waiting for a slot can outlast the checks above: the owner's role, the switch
-				// and the caller's access are checked again right before the child starts.
+				// Waiting for a slot can outlast the checks above: the caller's access, then the
+				// owner's role and the switch, are checked again right before the child starts.
+				// The role check is last, so nothing is awaited between it and the spawn.
 				authorize: async () => {
-					await validateCommand(upstream);
 					await authorizeOpen();
+					await validateCommand(upstream);
 				},
 				// A written message is forwarded: stdio has no response status, and a logical
 				// request's outcome and duration are recorded when it completes.
@@ -955,6 +956,8 @@ export async function invoke<T>(
 	target: string | undefined,
 	work: (client: Client) => Promise<T>,
 	capability?: Kind,
+	/** The dashboard request this serves; cancelling it stops the open. */
+	signal?: AbortSignal,
 ): Promise<T> {
 	const client = await openUpstream(
 		runtime,
@@ -962,6 +965,7 @@ export async function invoke<T>(
 		purpose,
 		target,
 		capability,
+		signal,
 	);
 	try {
 		return await work(client);
@@ -1055,6 +1059,7 @@ async function catalog(
 	upstream: Upstream,
 	kind: CatalogKind,
 	routing = false,
+	signal?: AbortSignal,
 ): Promise<CatalogEntry[]> {
 	const method =
 		kind === "resourceTemplates" ? "resources/templates/list" : `${kind}/list`;
@@ -1065,6 +1070,7 @@ async function catalog(
 		undefined,
 		(client) => readCatalog(client, kind),
 		kind === "resourceTemplates" ? "resources" : kind,
+		signal,
 	);
 }
 /** A dashboard check whose upstream did not answer, named for the person checking it. */
@@ -1124,71 +1130,89 @@ async function dashboardCheck<T>(upstream: Upstream, work: () => Promise<T>) {
 		throw error;
 	}
 }
-export async function inspect(runtime: Runtime, upstream: Upstream) {
-	return dashboardCheck(upstream, () => inspectCatalog(runtime, upstream));
+export async function inspect(
+	runtime: Runtime,
+	upstream: Upstream,
+	signal?: AbortSignal,
+) {
+	return dashboardCheck(upstream, () =>
+		inspectCatalog(runtime, upstream, signal),
+	);
 }
-async function inspectCatalog(runtime: Runtime, upstream: Upstream) {
-	return invoke(runtime, upstream, "discovery", undefined, async (client) => {
-		// Tools, resources and templates are asked for together, so a check takes about as long
-		// as the slowest of them. Prompts follow only after they succeed: a failing server is not
-		// sent a further request.
-		const [tools, resources, templates] = await Promise.all([
-			readCatalog(client, "tools"),
-			readCatalog(client, "resources"),
-			readCatalog(client, "resourceTemplates"),
-		]);
-		const prompts = await readCatalog(client, "prompts");
-		// A dashboard check is the explicit refresh that surfaces changed definitions.
-		await reviewedTools(upstream, tools);
-		const entries = [
-			...tools.map(
-				(item) => ["tools", catalogField(item, "name"), item] as const,
-			),
-			...resources.map(
-				(item) => ["resources", catalogField(item, "uri"), item] as const,
-			),
-			...templates.map(
-				(item) =>
-					["resources", catalogField(item, "uriTemplate"), item] as const,
-			),
-			...prompts.map(
-				(item) => ["prompts", catalogField(item, "name"), item] as const,
-			),
-		];
-		return {
-			inventory: catalogInventory(tools, resources, templates, prompts),
-			tools: tools.map((item) => catalogField(item, "name")),
-			resources: entries
-				.filter(([kind]) => kind === "resources")
-				.map(([, name]) => name),
-			prompts: prompts.map((item) => catalogField(item, "name")),
-			// What the upstream declares; shown in the access editor only, never used for access.
-			hints: tools.flatMap((item) => {
-				const { readOnlyHint, destructiveHint } = toolAnnotations(item);
-				return readOnlyHint === true || destructiveHint === true
-					? [
-							{
-								name: catalogField(item, "name"),
-								...(readOnlyHint === true ? { readOnly: true } : {}),
-								...(destructiveHint === true ? { destructive: true } : {}),
-							},
-						]
-					: [];
-			}),
-			// Shown beside names in the access editor; long upstream text is cut short.
-			descriptions: entries.flatMap(([capability, name, item]) =>
-				typeof item.description === "string" && item.description.trim()
-					? [
-							{
-								capability,
-								name,
-								description: item.description.trim().slice(0, 1000),
-							},
-						]
-					: [],
-			),
-		};
-	});
+async function inspectCatalog(
+	runtime: Runtime,
+	upstream: Upstream,
+	signal?: AbortSignal,
+) {
+	return invoke(
+		runtime,
+		upstream,
+		"discovery",
+		undefined,
+		async (client) => {
+			// Tools, resources and templates are asked for together, so a check takes about as long
+			// as the slowest of them. Prompts follow only after they succeed: a failing server is not
+			// sent a further request.
+			const [tools, resources, templates] = await Promise.all([
+				readCatalog(client, "tools"),
+				readCatalog(client, "resources"),
+				readCatalog(client, "resourceTemplates"),
+			]);
+			const prompts = await readCatalog(client, "prompts");
+			// A dashboard check is the explicit refresh that surfaces changed definitions.
+			await reviewedTools(upstream, tools);
+			const entries = [
+				...tools.map(
+					(item) => ["tools", catalogField(item, "name"), item] as const,
+				),
+				...resources.map(
+					(item) => ["resources", catalogField(item, "uri"), item] as const,
+				),
+				...templates.map(
+					(item) =>
+						["resources", catalogField(item, "uriTemplate"), item] as const,
+				),
+				...prompts.map(
+					(item) => ["prompts", catalogField(item, "name"), item] as const,
+				),
+			];
+			return {
+				inventory: catalogInventory(tools, resources, templates, prompts),
+				tools: tools.map((item) => catalogField(item, "name")),
+				resources: entries
+					.filter(([kind]) => kind === "resources")
+					.map(([, name]) => name),
+				prompts: prompts.map((item) => catalogField(item, "name")),
+				// What the upstream declares; shown in the access editor only, never used for access.
+				hints: tools.flatMap((item) => {
+					const { readOnlyHint, destructiveHint } = toolAnnotations(item);
+					return readOnlyHint === true || destructiveHint === true
+						? [
+								{
+									name: catalogField(item, "name"),
+									...(readOnlyHint === true ? { readOnly: true } : {}),
+									...(destructiveHint === true ? { destructive: true } : {}),
+								},
+							]
+						: [];
+				}),
+				// Shown beside names in the access editor; long upstream text is cut short.
+				descriptions: entries.flatMap(([capability, name, item]) =>
+					typeof item.description === "string" && item.description.trim()
+						? [
+								{
+									capability,
+									name,
+									description: item.description.trim().slice(0, 1000),
+								},
+							]
+						: [],
+				),
+			};
+		},
+		undefined,
+		signal,
+	);
 }
 
 /** Short, non-secret listing shape for a shared catalog; input schemas are omitted. */
@@ -1299,9 +1323,10 @@ export async function observeToolCatalog(
 export async function agentToolCatalog(
 	runtime: Runtime,
 	upstream: Upstream,
+	signal?: AbortSignal,
 ): Promise<Tool[]> {
 	const tools = await dashboardCheck(upstream, () =>
-		catalog(runtime, upstream, "tools"),
+		catalog(runtime, upstream, "tools", false, signal),
 	);
 	return (await reviewedTools(
 		upstream,
@@ -1315,6 +1340,7 @@ export async function testAgentTool(
 	upstream: Upstream,
 	name: string,
 	arguments_: Record<string, unknown>,
+	signal?: AbortSignal,
 ) {
 	if (!permitted(upstream.rules, "tools", name))
 		return deny(
@@ -1326,7 +1352,7 @@ export async function testAgentTool(
 		);
 	const tool = (
 		await dashboardCheck(upstream, () =>
-			catalog(runtime, upstream, "tools", true),
+			catalog(runtime, upstream, "tools", true, signal),
 		)
 	).find((tool) => tool.name === name);
 	if (!tool) throw new Error("Tool unavailable");
@@ -1335,8 +1361,14 @@ export async function testAgentTool(
 	let result: Awaited<ReturnType<Client["callTool"]>>;
 	try {
 		result = await dashboardCheck(upstream, () =>
-			invoke(runtime, upstream, "tools/call", name, (client) =>
-				client.callTool({ name, arguments: arguments_ }),
+			invoke(
+				runtime,
+				upstream,
+				"tools/call",
+				name,
+				(client) => client.callTool({ name, arguments: arguments_ }),
+				undefined,
+				signal,
 			),
 		);
 	} catch (error) {

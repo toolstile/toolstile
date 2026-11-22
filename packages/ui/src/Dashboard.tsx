@@ -1163,23 +1163,27 @@ export function Dashboard({
 							}
 							onCancel={() => onDialogChange(null)}
 							onUseAddress={() => setCommandForm(false)}
-							onAdded={async (id) => {
-								// Saved: a failed refresh only leaves the list out of date and must not
-								// read as a failed add that invites adding it twice.
-								const refreshed = await reload().then(
-									() => true,
-									() => false,
-								);
+							onAdded={(id) => {
+								// Saved once the ID returns: the dialog closes now and the list refreshes in
+								// the background; a failed refresh is not a failed add.
 								if (activeScope.current !== generation) return;
 								setAdded(id);
 								setAddedAddress("");
 								setAddedSignedIn(false);
 								onDialogChange(null);
 								onNavigate("connections");
-								setNotice(
-									refreshed
-										? "Local command added"
-										: "Local command added. The page couldn't refresh; reload it to see the latest.",
+								void reload().then(
+									() => {
+										if (activeScope.current === generation)
+											setNotice("Local command added");
+									},
+									() => {
+										if (activeScope.current === generation)
+											setNotice(
+												"Local command added. The page couldn't refresh; reload it to see the latest.",
+												"error",
+											);
+									},
 								);
 							}}
 						/>

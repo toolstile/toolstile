@@ -187,7 +187,11 @@ export class LocalCommandTransport implements Transport {
 				this.#exitCode = code;
 				resolve();
 			});
-			child.once("error", () => resolve());
+			// A child that never started has no pid; any other error (a failed kill signal,
+			// a pipe error) leaves it running, so its slot stays held until it exits.
+			child.once("error", () => {
+				if (child.pid === undefined) resolve();
+			});
 		}).then(() => this.#release());
 		try {
 			await started;

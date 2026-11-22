@@ -139,3 +139,13 @@ it("treats a saved command as added when the page then fails to refresh", async 
 	expect(document.querySelector('[role="alert"]')).toBeNull();
 	expect(onDialogChange).toHaveBeenCalledWith(null);
 });
+
+it("closes the dialog once the command is saved, while the page still refreshes", async () => {
+	const add = vi.fn(async () => ({ id: "c-local" }));
+	const { onDialogChange } = render({ add }, () => new Promise(() => {}));
+	act(() => button("Run a local command instead")?.click());
+	type("command", "uvx");
+	await act(async () => button("Add command")?.click());
+	expect(add).toHaveBeenCalledTimes(1);
+	expect(onDialogChange).toHaveBeenCalledWith(null);
+});
