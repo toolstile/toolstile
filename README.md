@@ -1,6 +1,6 @@
 # Toolstile
 
-**Give Claude Code your GitHub tools, but not the delete ones.**
+**Let your coding agents touch prod. You approve the DELETEs.**
 
 Toolstile is an open-source MCP gateway that gives each coding agent its own endpoint with only the tools you allow. Mark a tool *Require approval* and its calls are refused until you approve the exact arguments in your browser.
 
@@ -10,7 +10,7 @@ npx toolstile server start
 
 Open the setup link it prints to create your account, then run `claude mcp add --transport http toolstile http://127.0.0.1:4310/mcp`.
 
-<img src="./.github/assets/approval-demo.gif" width="960" alt="Animated illustration: Claude Code calls github__delete_file through Toolstile and receives an approval-required result with a review link. The Approvals page shows the agent, the GitHub connection, the account used and the exact parameters; the reviewer selects Deny, the retry is refused and the file stays in the repository." />
+<img src="./.github/assets/approval-demo.gif" width="960" alt="Animated illustration: asked to remove the test signups from prod, Claude Code calls supabase__execute_sql with DELETE FROM users WHERE plan = 'free' through Toolstile and receives an approval-required result with a review link. The Approvals page shows the agent, the Supabase connection, the account used and the exact query; the reviewer sees the WHERE clause covers every free user and selects Deny. Nothing ran." />
 
 [![Website](https://img.shields.io/badge/website-toolstile.com-1d4ed8?style=flat-square)](https://www.toolstile.com)
 [![Docs](https://img.shields.io/badge/docs-toolstile.com%2Fdocs-1d4ed8?style=flat-square)](https://www.toolstile.com/docs)
