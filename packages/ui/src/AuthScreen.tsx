@@ -66,6 +66,7 @@ export function AuthScreen({
 	modeHref,
 	initialEmail,
 	invitationToken: providedInvitationToken,
+	setupToken,
 	legal,
 	footer,
 	alternativeMethods,
@@ -80,6 +81,9 @@ export function AuthScreen({
 	modeHref?: string;
 	initialEmail?: string;
 	invitationToken?: string;
+	/** Creates the first account of a fresh instance from its one-time setup link: email and
+	 * password only, without providers or an invitation. */
+	setupToken?: string;
 	/** Agreement line shown under the create-account button. */
 	legal?: ReactNode;
 	/** Passed to AuthFrame as the quiet line under the form; left out when `legal` already shows. */
@@ -107,6 +111,7 @@ export function AuthScreen({
 			? new URLSearchParams()
 			: new URLSearchParams(window.location.search);
 	const signup = mode === "signup";
+	const setup = setupToken !== undefined;
 	const [providers, setProviders] = useState<("github" | "google")[]>([]);
 	const [optionsSettled, setOptionsSettled] = useState(false);
 	const [optionsState, setOptionsState] = useState<
@@ -302,10 +307,14 @@ export function AuthScreen({
 					body: JSON.stringify({
 						...data,
 						email: String(data.email ?? "").trim(),
-						invitationToken:
-							providedInvitationToken ??
-							params.get("invite") ??
-							data.invitationToken,
+						...(setup
+							? { setupToken }
+							: {
+									invitationToken:
+										providedInvitationToken ??
+										params.get("invite") ??
+										data.invitationToken,
+								}),
 						...(callbackURL !== undefined
 							? { callbackURL: safeLocalReturnTo(callbackURL) }
 							: {}),
@@ -313,6 +322,13 @@ export function AuthScreen({
 				},
 			);
 			const result = await readAuthResponse(response);
+			// The setup link created the account but could not sign in: sign in by hand.
+			if (setup && result.code === "SETUP_ACCOUNT_CREATED") {
+				window.location.assign(
+					`/auth/sign-in?${new URLSearchParams({ email: String(data.email ?? "").trim(), error: "SETUP_ACCOUNT_CREATED" })}`,
+				);
+				return;
+			}
 			if (!response.ok || !result.user || typeof result.user !== "object")
 				throw new Error(
 					authFailure(
@@ -320,7 +336,8 @@ export function AuthScreen({
 						signup ? "signup" : "signin",
 						{
 							recovery: !!recoveryHref,
-							invitationRequired: signup && !registrationOpen,
+							invitationRequired: signup && !registrationOpen && !setup,
+							setup,
 						},
 					),
 				);
@@ -449,11 +466,19 @@ export function AuthScreen({
 				<h1 id={`${id}-title`} {...stylex.props(authStyles.title)}>
 					{signup ? "Create your account" : "Sign in"}
 				</h1>
-				{signup && !registrationOpen && (
+				{setup ? (
 					<p {...stylex.props(authStyles.description)}>
-						Use an invitation from the person running this instance to create
-						your account.
+						Your account is stored in this instance on your machine. If email is
+						set up, it also sends a verification link.
 					</p>
+				) : (
+					signup &&
+					!registrationOpen && (
+						<p {...stylex.props(authStyles.description)}>
+							Use an invitation from the person running this instance to create
+							your account.
+						</p>
+					)
 				)}
 				{optionsState !== "ready" && (
 					<p
@@ -477,7 +502,7 @@ export function AuthScreen({
 						)}
 					</p>
 				)}
-				{(providers.length > 0 || alternativeMethods) && (
+				{!setup && (providers.length > 0 || alternativeMethods) && (
 					<>
 						<div inert={pending} {...stylex.props(authStyles.socialButtons)}>
 							{providers.map((provider) => (
@@ -531,6 +556,7 @@ export function AuthScreen({
 					</>
 				)}
 				{signup &&
+					!setup &&
 					field("name", "Name", { autoComplete: "name", maxLength: 100 })}
 				{field("email", "Email", {
 					type: "email",
@@ -573,6 +599,7 @@ export function AuthScreen({
 					) : undefined,
 				)}
 				{signup &&
+					!setup &&
 					!registrationOpen &&
 					!acceptedInvitation &&
 					!(providedInvitationToken ?? params.get("invite")) &&
@@ -618,33 +645,36 @@ export function AuthScreen({
 					)}
 				</button>
 				{signup && legal && <p {...stylex.props(authStyles.legal)}>{legal}</p>}
-				<p {...stylex.props(authStyles.switchLine)}>
-					{switchLabel[0]}{" "}
-					{modeHref ? (
-						<a href={modeHref} {...stylex.props(authStyles.inlineAction)}>
-							{switchLabel[1]}
-						</a>
-					) : (
-						<button
-							type="button"
-							disabled={pending}
-							{...stylex.props(authStyles.inlineAction)}
-							onClick={() => {
-								setError("");
-								onModeChange(
-									signup ? "signin" : "signup",
-									String(
-										formRef.current
-											? (new FormData(formRef.current).get("email") ?? "")
-											: "",
-									).trim(),
-								);
-							}}
-						>
-							{switchLabel[1]}
-						</button>
-					)}
-				</p>
+				{/* A fresh instance has no account to sign in to yet. */}
+				{!setup && (
+					<p {...stylex.props(authStyles.switchLine)}>
+						{switchLabel[0]}{" "}
+						{modeHref ? (
+							<a href={modeHref} {...stylex.props(authStyles.inlineAction)}>
+								{switchLabel[1]}
+							</a>
+						) : (
+							<button
+								type="button"
+								disabled={pending}
+								{...stylex.props(authStyles.inlineAction)}
+								onClick={() => {
+									setError("");
+									onModeChange(
+										signup ? "signin" : "signup",
+										String(
+											formRef.current
+												? (new FormData(formRef.current).get("email") ?? "")
+												: "",
+										).trim(),
+									);
+								}}
+							>
+								{switchLabel[1]}
+							</button>
+						)}
+					</p>
+				)}
 			</form>
 		</AuthFrame>
 	);

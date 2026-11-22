@@ -69,6 +69,11 @@ describe("auth guidance is authored and reflects available actions", () => {
 			"Provider sign-in did not complete. Try again, or use another sign-in method.",
 		);
 	});
+	it("tells a setup-link account that could not sign in automatically to sign in", () => {
+		expect(callbackAuthFailure("SETUP_ACCOUNT_CREATED", true)).toBe(
+			"Your account was created. Sign in with the email and password you just set.",
+		);
+	});
 	it("keeps collisions actionable without promising missing recovery", () => {
 		expect(callbackAuthFailure("account_not_linked", true)).toContain(
 			"recover your account below",

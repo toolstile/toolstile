@@ -110,6 +110,8 @@ import {
 	notInArray,
 	or,
 } from "drizzle-orm";
+import { createEmailVerificationToken } from "better-auth/api";
+import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
 import { createAccountEmail } from "./account-email";
 import { createAccountService } from "./accounts";
@@ -131,6 +133,11 @@ import {
 	type profiles,
 } from "./schema";
 import { createSetupRouter } from "./setup";
+import {
+	createSetupAccount,
+	offersSetupLink,
+	setupLinkUsable,
+} from "./setup-link";
 import { createTelemetryService } from "./telemetry";
 import { createInstanceUpstreamOAuth } from "./upstream";
 /** Construct runtime services inside the request owner. Module evaluation must
@@ -212,6 +219,33 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		token: string;
 	}>();
 	const oauthSelection = createOAuthSelectionStore(pool);
+	/** Queues the verification email of a new account (sign-up and setup link) when SMTP is set. */
+	const sendVerificationEmail = accountEmail.enabled
+		? async ({
+				user,
+				url,
+				token,
+			}: {
+				user: { id: string; email: string };
+				url: string;
+				token: string;
+			}) => {
+				if (user.email.endsWith("@users.invalid")) return;
+				await transaction(pool, async (tx) => {
+					await accountEmail.enqueue(
+						tx,
+						user.id,
+						digest(token),
+						{
+							to: user.email,
+							subject: "Verify your Toolstile email",
+							text: `Verify your recovery email: ${url}`,
+						},
+						new Date(Date.now() + 3600000),
+					);
+				});
+			}
+		: undefined;
 	const auth = createAuth({
 		database: db,
 		schema: authSchema,
@@ -250,24 +284,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		canSignIn: async (userId) => {
 			await active(userId);
 		},
-		sendVerificationEmail: accountEmail.enabled
-			? async ({ user, url, token }) => {
-					if (user.email.endsWith("@users.invalid")) return;
-					await transaction(pool, async (tx) => {
-						await accountEmail.enqueue(
-							tx,
-							user.id,
-							digest(token),
-							{
-								to: user.email,
-								subject: "Verify your Toolstile email",
-								text: `Verify your recovery email: ${url}`,
-							},
-							new Date(Date.now() + 3600000),
-						);
-					});
-				}
-			: undefined,
+		sendVerificationEmail,
 		oauth: {
 			resource: `${env.BETTER_AUTH_URL}/mcp`,
 			selection: oauthSelection.lookup,
@@ -1531,6 +1548,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		) {
 			const body = await authJsonBody(request);
 			if (body instanceof Response) return body;
+			if (body.setupToken !== undefined) return setupSignUp(request, body);
 			const token = String(
 				body.invitationToken ?? invitationCookie(request) ?? "",
 			);
@@ -1570,6 +1588,95 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			return registration.run({ email, token }, () => auth.handler(forwarded));
 		}
 		return auth.handler(request);
+	}
+	/** The first account of a fresh local instance, created through its one-time setup link
+	 * (setup-link.ts) as the instance operator, then signed in. */
+	async function setupSignUp(request: Request, body: Record<string, unknown>) {
+		const refused = () =>
+			Response.json(
+				{
+					code: "SETUP_LINK_UNAVAILABLE",
+					message: "This setup link was already used or has expired",
+				},
+				{ status: 403, headers: { "Cache-Control": "no-store" } },
+			);
+		if (request.headers.get("origin") !== env.BETTER_AUTH_URL)
+			return new Response("Invalid origin", { status: 403 });
+		// The same rule `start` used to print the link, against the address the server binds.
+		if (
+			!offersSetupLink(
+				env.BETTER_AUTH_URL,
+				process.env.NITRO_HOST || process.env.HOST || "",
+			)
+		)
+			return refused();
+		const input = z
+			.object({
+				setupToken: z.string().max(200),
+				email: z.email().max(320),
+				// The sign-up rules (packages/auth): 12 to 128 characters, not only spaces.
+				password: z
+					.string()
+					.min(12)
+					.max(128)
+					.refine((value) => !!value.trim()),
+			})
+			.safeParse({
+				...body,
+				email: String(body.email ?? "")
+					.trim()
+					.toLowerCase(),
+			});
+		if (!input.success)
+			return Response.json(
+				{
+					message: "Enter a valid email and a password of 12 to 128 characters",
+				},
+				{ status: 400 },
+			);
+		const { setupToken, email, password } = input.data;
+		if (!(await setupLinkUsable(pool, setupToken))) return refused();
+		const created = await createSetupAccount(pool, setupToken, {
+			email,
+			// The setup form asks only for email and password.
+			name: email.split("@")[0] || email,
+			passwordHash: await hashPassword(password),
+		}).catch(() => undefined);
+		if (!created) return refused();
+		if (sendVerificationEmail) {
+			// The link ordinary sign-up sends (Better Auth's /verify-email, valid one hour).
+			const token = await createEmailVerificationToken(
+				env.BETTER_AUTH_SECRET,
+				email,
+			);
+			await sendVerificationEmail({
+				user: { id: created, email },
+				token,
+				url: `${env.BETTER_AUTH_URL}/api/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent("/")}`,
+			}).catch(() => console.error("Verification email could not be queued"));
+		}
+		const headers = new Headers(request.headers);
+		headers.delete("content-length");
+		const signedIn = await auth
+			.handler(
+				new Request(new URL("/api/auth/sign-in/email", request.url), {
+					method: "POST",
+					headers,
+					body: JSON.stringify({ email, password }),
+					signal: request.signal,
+				}),
+			)
+			.catch(() => undefined);
+		if (signedIn?.ok) return signedIn;
+		// The account exists and the link is spent: the person signs in on the sign-in page.
+		await signedIn?.body?.cancel();
+		return Response.json(
+			{
+				code: "SETUP_ACCOUNT_CREATED",
+				message: "Your account was created. Sign in to continue.",
+			},
+			{ headers: { "Cache-Control": "no-store" } },
+		);
 	}
 	async function actorFromRequest(request: Request): Promise<Actor> {
 		const session = await auth.api.getSession({ headers: request.headers });

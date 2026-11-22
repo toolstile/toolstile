@@ -7,6 +7,11 @@ import {
 	grantOperator,
 	inviteUser,
 } from "../apps/web/scripts/admin-operations";
+import {
+	issueSetupLink,
+	offersSetupLink,
+	SETUP_LINK_MINUTES,
+} from "../apps/web/src/server/setup-link";
 import { openDatabase } from "../packages/database/src/index";
 import { migrateDatabaseWithLock } from "../packages/database/src/migrate";
 import { backupInstance, restoreInstance } from "./local-storage";
@@ -76,7 +81,12 @@ export async function runLocal(args: string[], runtime: LocalRuntime) {
 		console.log(`Instance initialized in ${directory}`);
 	} else if (command === "start") {
 		await migrate(runtime.migrationsFolder());
+		const origin = process.env.BETTER_AUTH_URL ?? "";
+		const local = offersSetupLink(origin, process.env.HOST ?? "");
+		const setup = local ? await withDatabase(issueSetupLink) : undefined;
 		await runtime.startServer();
+		if (local && (await listening(origin)))
+			console.log(startMessage(origin, setup));
 	} else if (command === "bootstrap" || command === "operator") {
 		if (!argument?.includes("@"))
 			throw new Error(`Usage: ${runtime.name} ${command} email@example.com`);
@@ -149,6 +159,53 @@ function initialize(
 	);
 }
 
+/** What `start` prints once a loopback instance is listening, with its setup link if any. */
+export function startMessage(origin: string, setup?: string) {
+	if (!setup) return `\nToolstile is running at ${origin}\n`;
+	return `
+Toolstile is running at ${origin}
+
+Finish setup (link works once, expires in ${SETUP_LINK_MINUTES} minutes):
+  ${origin}/auth/setup#${setup}
+
+Then connect Claude Code:
+  claude mcp add --transport http toolstile ${shellWord(`${origin}/mcp`)}
+`;
+}
+
+/** Quote a word for POSIX shells when it has characters they treat specially, such as
+ * the brackets of an IPv6 address, which zsh expands as a glob. */
+function shellWord(value: string) {
+	return /^[\w@%+=:,./-]+$/.test(value)
+		? value
+		: `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function withDatabase<T>(
+	work: (pool: ReturnType<typeof openDatabase>["pool"]) => Promise<T>,
+) {
+	const { pool } = openDatabase(process.env.DATABASE_URL ?? "");
+	try {
+		return await work(pool);
+	} finally {
+		await pool.end();
+	}
+}
+
+/** Waits until the server answers, so the printed links work when shown. */
+async function listening(origin: string) {
+	const deadline = Date.now() + 60_000;
+	while (Date.now() < deadline) {
+		try {
+			const response = await fetch(`${origin}/live`);
+			await response.body?.cancel();
+			if (response.ok) return true;
+		} catch {}
+		await new Promise((done) => setTimeout(done, 100));
+	}
+	return false;
+}
+
 /** Configure this process for the instance; the server reads it when imported. */
 function loadEnvironment(directory: string, configuration: string) {
 	if (!existsSync(configuration))
@@ -167,6 +224,9 @@ function loadEnvironment(directory: string, configuration: string) {
 		ENCRYPTION_KEY: config.encryptionKey,
 		HOST: config.host,
 		PORT: String(config.port),
+		// Nitro prefers these to HOST and PORT; an inherited value must not move the server.
+		NITRO_HOST: config.host,
+		NITRO_PORT: String(config.port),
 		TOOLSTILE_CATALOG_FETCH: process.env.TOOLSTILE_CATALOG_FETCH ?? "off",
 	});
 }

@@ -43,6 +43,12 @@ export const invitations = pgTable("invitations", {
 		.notNull()
 		.default(sql`now()`),
 });
+/** The one-time setup link of a fresh local instance; at most one row (setup-link.ts). */
+export const setupLink = pgTable("setup_link", {
+	id: text().primaryKey(),
+	tokenHash: text().notNull(),
+	expiresAt: dateTime().notNull(),
+});
 export const authorizations = pgTable("authorizations", {
 	id: text().primaryKey(),
 	agentId: text()

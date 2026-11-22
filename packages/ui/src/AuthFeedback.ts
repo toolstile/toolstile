@@ -1,7 +1,12 @@
 import { safeLocalReturnTo } from "./AccountNavigation";
 
 type Method = "signin" | "signup" | "social";
-type Context = { recovery?: boolean; invitationRequired?: boolean };
+type Context = {
+	recovery?: boolean;
+	invitationRequired?: boolean;
+	/** Creating the first account from a one-time setup link. */
+	setup?: boolean;
+};
 
 /** All guidance is authored here, including unknown server or callback failures. */
 export function authFailure(
@@ -13,6 +18,8 @@ export function authFailure(
 		.toLowerCase()
 		.replaceAll("_", " ");
 	const recovery = context.recovery ? ", or recover your account below" : "";
+	if (code === "setup account created")
+		return "Your account was created. Sign in with the email and password you just set.";
 	if (/not linked|already linked/.test(code))
 		return `This email uses a different sign-in method. Sign in with your original method${recovery}.`;
 	if (/already exists|already registered/.test(code))
@@ -21,6 +28,8 @@ export function authFailure(
 		return `Email or password is incorrect. Try again${recovery}.`;
 	if (/too many|rate limit/.test(code))
 		return "Too many attempts. Wait a moment, then try again.";
+	if (context.setup && /setup link/.test(code))
+		return "This setup link was already used or has expired. Stop the server and start it again for a new link.";
 	if (
 		method === "signup" &&
 		(/invitation/.test(code) || context.invitationRequired)

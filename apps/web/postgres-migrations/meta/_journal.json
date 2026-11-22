@@ -29,6 +29,13 @@
       "when": 1795103422426,
       "tag": "0003_cli_device_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795326359350,
+      "tag": "0004_setup_link",
+      "breakpoints": true
     }
   ]
 }
