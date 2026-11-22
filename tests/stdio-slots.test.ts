@@ -74,10 +74,10 @@ it("runs at most eight children; a ninth waits, an aborted waiter never starts",
 		const ninth = new LocalCommandTransport(sleeper(marker));
 		const waiting = ninth.start();
 		const controller = new AbortController();
-		const authorize = vi.fn(async () => {});
+		const launch = vi.fn(async (spawn: () => void) => spawn());
 		const abandoned = new LocalCommandTransport(
 			sleeper(join(directory, "abandoned")),
-			{ authorize, signal: controller.signal },
+			{ launch, signal: controller.signal },
 		);
 		const abandonedStart = abandoned.start();
 		expect(await settled(waiting)).toBe(false);
@@ -86,7 +86,7 @@ it("runs at most eight children; a ninth waits, an aborted waiter never starts",
 		await held[0]?.close();
 		await waiting;
 		await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
-		expect(authorize).not.toHaveBeenCalled();
+		expect(launch).not.toHaveBeenCalled();
 		expect(abandoned.spawned).toBe(false);
 		expect(existsSync(join(directory, "abandoned"))).toBe(false);
 		await ninth.close();
@@ -123,6 +123,14 @@ it("frees a slot only after the child exits, with one shared close", async () =>
 	}
 }, 30_000);
 
+/** A host check in the hook's order: the caller's checks, then the role, then the spawn. */
+const allow =
+	(role: () => void = () => {}): NonNullable<Runtime["validateCommand"]> =>
+	async (_upstream, start) => {
+		await start?.check();
+		role();
+		start?.spawn();
+	};
 const source = (command: LocalCommand): Upstream => ({
 	id: "33333333-3333-3333-3333-333333333333",
 	label: "Files",
@@ -148,9 +156,9 @@ it("checks authorization again once a queued command gets its slot", async () =>
 			},
 			record: async () => {},
 			validateDestination: async () => {},
-			validateCommand: async () => {
+			validateCommand: allow(() => {
 				if (!operator) throw new Error("Only instance operators");
-			},
+			}),
 		};
 		const opening = openUpstream(
 			runtime,
@@ -181,7 +189,7 @@ it("never starts a queued command for an agent request that was cancelled", asyn
 			admit: async () => {},
 			record: async () => {},
 			validateDestination: async () => {},
-			validateCommand: async () => {},
+			validateCommand: allow(),
 		};
 		const controller = new AbortController();
 		// The agent request being served, as the gateway's request handlers set it.
@@ -214,7 +222,7 @@ it("never starts a local command for a subscription or list-change watch", async
 		check: async () => {},
 		record: async () => {},
 		validateDestination: async () => {},
-		validateCommand: async () => {},
+		validateCommand: allow(),
 	};
 	const gateway = createMcpGateway();
 	const listen = (notifications: Record<string, unknown>) =>
@@ -274,9 +282,9 @@ it("checks the owner's role after the caller's checks, right before the child st
 		},
 		record: async () => {},
 		validateDestination: async () => {},
-		validateCommand: async () => {
+		validateCommand: allow(() => {
 			if (!operator) throw new Error("Only instance operators");
-		},
+		}),
 	};
 	await expect(
 		openUpstream(runtime, upstream, "tools/list", undefined, "tools"),
@@ -324,7 +332,7 @@ it("never starts a queued command for a dashboard check that was cancelled", asy
 			admit: async () => {},
 			record: async () => {},
 			validateDestination: async () => {},
-			validateCommand: async () => {},
+			validateCommand: allow(),
 		};
 		const controller = new AbortController();
 		const checking = inspect(runtime, upstream, controller.signal);
@@ -338,6 +346,72 @@ it("never starts a queued command for a dashboard check that was cancelled", asy
 		await Promise.all(held.map((transport) => transport.close()));
 	}
 }, 30_000);
+
+it("lets no revocation land between the caller's final check and the spawn", async () => {
+	const upstream = source({
+		command: process.execPath,
+		args: ["-e", "process.exit(0)"],
+		env: {},
+	});
+	// The host's lock that access changes take (an account fence in the instance).
+	let held = Promise.resolve();
+	const locked = async (work: () => Promise<void>) => {
+		const previous = held;
+		let release = () => {};
+		held = new Promise((resolve) => {
+			release = resolve;
+		});
+		await previous;
+		try {
+			await work();
+		} finally {
+			release();
+		}
+	};
+	const events: string[] = [];
+	let granted = true,
+		lookups = 0,
+		revoking: Promise<void> | undefined;
+	/** The owner's role lookup; the final one races a revocation of the caller's grant. */
+	const lookup = async () => {
+		if (++lookups !== 2) return;
+		revoking = locked(async () => {
+			granted = false;
+			events.push("revoked");
+		});
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	};
+	const runtime: Runtime = {
+		connections: async () => [upstream],
+		admit: async () => {},
+		check: async () => {
+			if (!granted) throw new Error("Grant revoked");
+			events.push("check");
+		},
+		record: async () => {},
+		validateDestination: async () => {},
+		validateCommand: async (_upstream, start) => {
+			if (!start) {
+				await lookup();
+				if (lookups === 2) events.push("spawn");
+				return;
+			}
+			await locked(async () => {
+				await start.check();
+				await lookup();
+				start.spawn();
+				events.push("spawn");
+			});
+		},
+	};
+	await openUpstream(runtime, upstream, "tools/list", undefined, "tools").catch(
+		() => undefined,
+	);
+	await revoking;
+	const final = events.lastIndexOf("check");
+	expect(events[final + 1]).toBe("spawn");
+	expect(events).toContain("revoked");
+});
 
 it("refuses queued and new starts at shutdown and stops running children", async () => {
 	const held = await fill();

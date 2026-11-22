@@ -98,11 +98,19 @@ function runtime(source: Upstream, extra: Partial<Runtime> = {}) {
 		validateDestination: async () => {
 			throw new Error("A local command has no network destination");
 		},
-		validateCommand: async () => {},
+		validateCommand: allow(),
 		...extra,
 	};
 	return { runtime: value, admitted, recorded };
 }
+/** A host check in the hook's order: the caller's checks, then the role, then the spawn. */
+const allow =
+	(role: () => void = () => {}): NonNullable<Runtime["validateCommand"]> =>
+	async (_upstream, start) => {
+		await start?.check();
+		role();
+		start?.spawn();
+	};
 const text = (result: unknown) =>
 	(result as { content: { text: string }[] }).content[0]?.text ?? "";
 

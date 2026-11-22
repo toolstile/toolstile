@@ -190,8 +190,16 @@ export interface Runtime {
 		durationMs: number,
 	): Promise<void>;
 	validateDestination(url: URL): Promise<void>;
-	/** Allows a local command (`transport: "stdio"`) to start now. Without it they never run. */
-	validateCommand?(upstream: Upstream): Promise<void>;
+	/**
+	 * Allows a local command (`transport: "stdio"`) to start: checks the host's switch and the
+	 * owner's role. With `start`, it runs `start.check()` (the caller's access), then its own
+	 * checks, then `start.spawn()`, all under the lock that access changes for this owner take.
+	 * Without this hook local commands never run.
+	 */
+	validateCommand?(
+		upstream: Upstream,
+		start?: { check(): Promise<void>; spawn(): void },
+	): Promise<void>;
 	fetch?: typeof fetch;
 	/** Required for approval-gated tools; without it they fail closed. */
 	approvals?: RuntimeApprovals;
@@ -688,13 +696,11 @@ export async function openUpstream(
 				// A request cancelled while it waits for a slot never starts the command.
 				signal:
 					signal ?? (interactionOptions() as { signal?: AbortSignal }).signal,
-				// Waiting for a slot can outlast the checks above: the caller's access, then the
-				// owner's role and the switch, are checked again right before the child starts.
-				// The role check is last, so nothing is awaited between it and the spawn.
-				authorize: async () => {
-					await authorizeOpen();
-					await validateCommand(upstream);
-				},
+				// Waiting for a slot can outlast the checks above. The host repeats the caller's
+				// checks, then the owner's role and the switch, and starts the child while holding
+				// the lock that access changes take, so none can commit in between.
+				launch: (spawn) =>
+					validateCommand(upstream, { check: authorizeOpen, spawn }),
 				// A written message is forwarded: stdio has no response status, and a logical
 				// request's outcome and duration are recorded when it completes.
 				guard: (message, write) =>

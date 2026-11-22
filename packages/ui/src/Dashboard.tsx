@@ -258,6 +258,8 @@ export function Dashboard({
 		[token, setToken] = useScopedState(localScope, ""),
 		[tokenAgentId, setTokenAgentId] = useScopedState(localScope, "");
 	const setNotice = useToastFeedback(localScope);
+	/** Feedback that must outlive a change of page, such as leaving the catalog after a save. */
+	const setAccountNotice = useToastFeedback(data.user.email);
 	const [navigationOverflows, setNavigationOverflows] = useState(false);
 	const navigationRef = useRef<HTMLElement>(null);
 	// Local dialog and row-edit state; the URL never carries them.
@@ -1172,18 +1174,12 @@ export function Dashboard({
 								setAddedSignedIn(false);
 								onDialogChange(null);
 								onNavigate("connections");
-								void reload().then(
-									() => {
-										if (activeScope.current === generation)
-											setNotice("Local command added");
-									},
-									() => {
-										if (activeScope.current === generation)
-											setNotice(
-												"Local command added. The page couldn't refresh; reload it to see the latest.",
-												"error",
-											);
-									},
+								setAccountNotice("Local command added");
+								void reload().catch(() =>
+									setAccountNotice(
+										"Local command added. The page couldn't refresh; reload it to see the latest.",
+										"error",
+									),
 								);
 							}}
 						/>

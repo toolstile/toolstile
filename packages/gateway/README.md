@@ -26,8 +26,10 @@ these fixtures do not establish interoperability with native client applications
   `initialize` handshake. It runs only when `Runtime.validateCommand` allows it;
   without that hook it fails closed. Every outgoing message passes the same
   admission, approval and metering guard as an HTTP request body. At most 8
-  children run at once; authorization is rechecked once a slot is held, right
-  before the child starts, and a slot frees only when its child has exited.
+  children run at once. Once a slot is held, `Runtime.validateCommand` repeats
+  the caller's checks, then the owner's role and switch, and starts the child
+  under the host's lock for access changes. A slot frees only when its child
+  has exited.
   `closeLocalCommands` refuses queued and new starts, then stops them at
   shutdown. Resource subscriptions and list-change watches skip stdio sources.
 

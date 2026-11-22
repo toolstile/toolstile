@@ -15,7 +15,15 @@ vi.mock("@stylexjs/stylex", () => ({
 	props: () => ({}),
 }));
 
+const toasts = vi.hoisted(() => ({
+	success: vi.fn(),
+	error: vi.fn(),
+	dismiss: vi.fn(),
+}));
+vi.mock("sonner", () => ({ Toaster: () => null, toast: toasts }));
+
 import { Dashboard } from "./Dashboard";
+import { ToastViewport } from "./Toast";
 import type { LocalCommandHost } from "./LocalCommandForm";
 
 (
@@ -50,31 +58,36 @@ function render(
 	document.body.append(container);
 	root = createRoot(container);
 	const onDialogChange = vi.fn();
-	act(() =>
+	// Saving from the catalog leaves it: the page, and with it the view's scope, changes.
+	const view = (scopeKey: string, open: boolean) =>
 		root?.render(
-			<Dashboard
-				section="connections"
-				onNavigate={() => undefined}
-				renderNavigationLink={() => null}
-				modal="connection"
-				onDialogChange={onDialogChange}
-				accessView={{}}
-				onAccessViewChange={() => undefined}
-				renderAccessLink={() => null}
-				data={data}
-				api={{} as ManagementClient}
-				connectionRequests={{
-					previewConnection: vi.fn(),
-					connectConnector: vi.fn(),
-				}}
-				localCommands={localCommands}
-				reload={reload}
-				renderAccountMenu={() => null}
-				connectionAccessSummary={() => ""}
-				onSignOut={() => undefined}
-			/>,
-		),
-	);
+			<>
+				<ToastViewport />
+				<Dashboard
+					section="connections"
+					scopeKey={scopeKey}
+					onNavigate={() => view("/app/connections", false)}
+					renderNavigationLink={() => null}
+					modal={open ? "connection" : null}
+					onDialogChange={onDialogChange}
+					accessView={{}}
+					onAccessViewChange={() => undefined}
+					renderAccessLink={() => null}
+					data={data}
+					api={{} as ManagementClient}
+					connectionRequests={{
+						previewConnection: vi.fn(),
+						connectConnector: vi.fn(),
+					}}
+					localCommands={localCommands}
+					reload={reload}
+					renderAccountMenu={() => null}
+					connectionAccessSummary={() => ""}
+					onSignOut={() => undefined}
+				/>
+			</>,
+		);
+	act(() => view("/app/connections/catalog", true));
 	return { onDialogChange };
 }
 const button = (label: string) =>
@@ -148,4 +161,24 @@ it("closes the dialog once the command is saved, while the page still refreshes"
 	await act(async () => button("Add command")?.click());
 	expect(add).toHaveBeenCalledTimes(1);
 	expect(onDialogChange).toHaveBeenCalledWith(null);
+});
+
+it("confirms the save and reports a failed refresh after leaving the catalog", async () => {
+	toasts.success.mockClear();
+	toasts.error.mockClear();
+	const add = vi.fn(async () => ({ id: "c-local" }));
+	render({ add }, async () => {
+		throw new Error("Network down");
+	});
+	act(() => button("Run a local command instead")?.click());
+	type("command", "uvx");
+	await act(async () => button("Add command")?.click());
+	expect(toasts.success).toHaveBeenCalledWith(
+		"Local command added",
+		expect.anything(),
+	);
+	expect(toasts.error).toHaveBeenCalledWith(
+		"Local command added. The page couldn't refresh; reload it to see the latest.",
+		expect.anything(),
+	);
 });

@@ -97,8 +97,9 @@ export class LocalCommandError extends Error {
  * The stdio transport for one operation. Every outgoing message goes through `guard`, the
  * same admission, approval and metering the HTTP transports apply to each request body.
  * It holds one of `LOCAL_COMMAND_LIMIT` slots from just before the child starts until the
- * child has exited. `authorize` runs once the slot is held, right before the child starts,
- * so a request that waited for a slot never starts on authorization that has since ended.
+ * child has exited. Once the slot is held, `launch` runs the final checks and calls `spawn`
+ * (synchronous, so it may hold a lock across both), so a request that waited for a slot never
+ * starts on authorization that has since ended.
  * Closing stops the child: standard input closes first, then SIGTERM and SIGKILL if it
  * keeps running. The child's standard error is discarded.
  */
@@ -111,7 +112,7 @@ export class LocalCommandTransport implements Transport {
 		message: JSONRPCMessage,
 		forward: () => Promise<void>,
 	) => Promise<void>;
-	readonly #authorize?: () => Promise<void>;
+	readonly #launch?: (spawn: () => void) => Promise<void>;
 	readonly #signal?: AbortSignal;
 	#holding = false;
 	#abort = () => void this.close();
@@ -129,7 +130,7 @@ export class LocalCommandTransport implements Transport {
 				message: JSONRPCMessage,
 				forward: () => Promise<void>,
 			) => Promise<void>;
-			authorize?: () => Promise<void>;
+			launch?: (spawn: () => void) => Promise<void>;
 			signal?: AbortSignal;
 		} = {},
 	) {
@@ -140,7 +141,7 @@ export class LocalCommandTransport implements Transport {
 			stderr: "ignore",
 		});
 		this.#guard = options.guard ?? ((_, forward) => forward());
-		this.#authorize = options.authorize;
+		this.#launch = options.launch;
 		this.#signal = options.signal;
 	}
 	/** Why the command stopped, as fixed text for an error message. */
@@ -160,39 +161,47 @@ export class LocalCommandTransport implements Transport {
 	async start() {
 		await acquireSlot(this.#signal);
 		this.#holding = true;
-		try {
-			await this.#authorize?.();
+		const state: { started?: Promise<void> } = {};
+		// Synchronous from its last check to the spawn, so a launcher can run both under one lock.
+		const spawn = () => {
 			if (shuttingDown) throw shutdownError();
 			if (this.#signal?.aborted) throw cancelled(this.#signal);
 			if (this.#closing)
 				throw new Error("Local command closed before it started");
+			this.spawned = true;
+			live.add(this);
+			this.#inner.onmessage = (message) => this.onmessage?.(message);
+			this.#inner.onerror = (error) => this.onerror?.(error);
+			this.#inner.onclose = () => this.onclose?.();
+			state.started = this.#inner.start();
+			// The SDK keeps its child private; its exit, not the end of its pipes, frees the slot.
+			const child = (this.#inner as unknown as { _process?: ChildProcess })
+				._process;
+			this.#child = child;
+			this.#exited = new Promise<void>((resolve) => {
+				if (!child || child.exitCode !== null || child.signalCode !== null)
+					return resolve();
+				child.once("exit", (code) => {
+					this.#exitCode = code;
+					resolve();
+				});
+				// A child that never started has no pid; any other error (a failed kill signal,
+				// a pipe error) leaves it running, so its slot stays held until it exits.
+				child.once("error", () => {
+					if (child.pid === undefined) resolve();
+				});
+			}).then(() => this.#release());
+		};
+		try {
+			if (this.#launch) await this.#launch(spawn);
+			else spawn();
+			if (!state.started) throw new Error("Local command was not started");
 		} catch (error) {
-			this.#release();
+			if (state.started) await this.close();
+			else this.#release();
 			throw error;
 		}
-		this.spawned = true;
-		live.add(this);
-		this.#inner.onmessage = (message) => this.onmessage?.(message);
-		this.#inner.onerror = (error) => this.onerror?.(error);
-		this.#inner.onclose = () => this.onclose?.();
-		const started = this.#inner.start();
-		// The SDK keeps its child private; its exit, not the end of its pipes, frees the slot.
-		const child = (this.#inner as unknown as { _process?: ChildProcess })
-			._process;
-		this.#child = child;
-		this.#exited = new Promise<void>((resolve) => {
-			if (!child || child.exitCode !== null || child.signalCode !== null)
-				return resolve();
-			child.once("exit", (code) => {
-				this.#exitCode = code;
-				resolve();
-			});
-			// A child that never started has no pid; any other error (a failed kill signal,
-			// a pipe error) leaves it running, so its slot stays held until it exits.
-			child.once("error", () => {
-				if (child.pid === undefined) resolve();
-			});
-		}).then(() => this.#release());
+		const started = state.started;
 		try {
 			await started;
 		} catch (error) {
@@ -258,18 +267,18 @@ export async function closeLocalCommands() {
 /**
  * The check before saving a local command: start it, complete the MCP handshake and stop it.
  * Like the address check for remote servers it is not an operation, so nothing is admitted
- * or recorded. `authorize` runs again right before the child starts.
+ * or recorded. `launch` runs the final checks and the spawn, as for an operation.
  */
 export async function checkLocalCommand(
 	command: LocalCommand,
 	options: {
-		authorize?: () => Promise<void>;
+		launch?: (spawn: () => void) => Promise<void>;
 		signal?: AbortSignal;
 		timeoutMs?: number;
 	} = {},
 ) {
 	const transport = new LocalCommandTransport(command, {
-		authorize: options.authorize,
+		launch: options.launch,
 		signal: options.signal,
 	});
 	const client = new Client(

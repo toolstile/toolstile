@@ -500,6 +500,17 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 				message: "Only instance operators can add and run local commands",
 			});
 	}
+	/**
+	 * Runs a local command's final checks and its (synchronous) spawn holding the owner's
+	 * account fence, which grant, agent, device and operator changes to that account take, so
+	 * none can commit between the last check and the start. Read committed and never retried:
+	 * each check reads the latest commit, and a spawn is never repeated.
+	 */
+	const commandStart = (actor: Actor, work: () => Promise<void>) =>
+		transaction(pool, work, {
+			isolation: "read committed",
+			fences: [accountFence(actor.userId)],
+		});
 	/** Saves a local command after it started and answered the MCP handshake. */
 	async function addLocalCommand(
 		actor: Actor,
@@ -516,7 +527,11 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		try {
 			// Checked again once a slot is free, right before the command starts.
 			await checkLocalCommand(command, {
-				authorize: () => commandOwner(actor),
+				launch: (spawn) =>
+					commandStart(actor, async () => {
+						await commandOwner(actor);
+						spawn();
+					}),
 				signal,
 			});
 		} catch (error) {
@@ -1187,10 +1202,12 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					);
 				return result;
 			} catch (error) {
-				// A server that did not answer may be briefly down; keep its stored status.
+				// A server that did not answer may be briefly down, and a cancelled check proved
+				// nothing; keep its stored status.
 				if (
 					error instanceof UpstreamUnavailableError ||
-					error instanceof ORPCError
+					error instanceof ORPCError ||
+					signal?.aborted
 				)
 					throw error;
 				await db
@@ -1487,8 +1504,13 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					});
 			},
 			validateDestination: destinationPolicy.validateDestination,
-			async validateCommand() {
-				await commandOwner(actor);
+			async validateCommand(_upstream, start) {
+				if (!start) return commandOwner(actor);
+				await commandStart(actor, async () => {
+					await start.check();
+					await commandOwner(actor);
+					start.spawn();
+				});
 			},
 			fetch: destinationPolicy.fetch,
 			refusalHint: (reason) =>

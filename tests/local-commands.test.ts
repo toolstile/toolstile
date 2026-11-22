@@ -229,6 +229,48 @@ describe("local commands in local mode", () => {
 		});
 	});
 
+	it("keeps a connection's status when its queued check is cancelled", async () => {
+		const slow = await addLocalCommand("operator", {
+			command: process.execPath,
+			args: [script, "--slow-list"],
+			label: "Slow",
+		});
+		const healthy = await addLocalCommand("operator", {
+			command: process.execPath,
+			args: [script],
+			label: "Healthy",
+		});
+		const verify = (id: string, signal: AbortSignal) =>
+			fetch(`${origin}/api/rpc/verify`, {
+				method: "POST",
+				signal,
+				headers: {
+					cookie: cookies.operator,
+					origin,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ json: { id } }),
+			}).catch(() => undefined);
+		// Eight checks of a server that never lists its tools hold every slot.
+		const holders = Array.from({ length: 8 }, () => new AbortController());
+		const held = holders.map((controller) =>
+			verify(slow.body.id, controller.signal),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		const queued = new AbortController();
+		const cancelled = verify(healthy.body.id, queued.signal);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		queued.abort();
+		await cancelled;
+		for (const controller of holders) controller.abort();
+		await Promise.all(held);
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		const connection = (await api("operator").snapshot()).connections.find(
+			(item) => item.id === healthy.body.id,
+		);
+		expect(connection?.status).toBe("reachable");
+	}, 60_000);
+
 	it("serves a command's granted tools to an agent and refuses it once turned off", async () => {
 		const added = await addLocalCommand("operator", {
 			command: process.execPath,

@@ -14,13 +14,18 @@ const server = new Server(
 	{ name: "toolstile-stdio-fixture", version: "1" },
 	{ capabilities: { tools: {} } },
 );
-server.setRequestHandler("tools/list", async () => ({
-	tools: ["echo", "environment", "hang", "create_issue"].map((name) => ({
-		name,
-		description: `Stdio fixture: ${name}`,
-		inputSchema: { type: "object", properties: { text: { type: "string" } } },
-	})),
-}));
+server.setRequestHandler("tools/list", async () => {
+	// With `--slow-list`, listing tools never answers, so the process keeps its slot.
+	if (process.argv.includes("--slow-list"))
+		await new Promise((resolve) => setTimeout(resolve, 600_000));
+	return {
+		tools: ["echo", "environment", "hang", "create_issue"].map((name) => ({
+			name,
+			description: `Stdio fixture: ${name}`,
+			inputSchema: { type: "object", properties: { text: { type: "string" } } },
+		})),
+	};
+});
 server.setRequestHandler("tools/call", async (request) => {
 	const { name } = request.params;
 	if (name === "environment")
