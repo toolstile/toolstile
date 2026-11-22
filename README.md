@@ -10,7 +10,7 @@ npx toolstile server start
 
 Open the setup link it prints to create your account, then run `claude mcp add --transport http toolstile http://127.0.0.1:4310/mcp`.
 
-<img src="./.github/assets/banner.png" alt="Toolstile: connect your tools once, set each agent's access. A grid showing Claude Code, Codex and Cursor with allow, partial and deny access to each MCP server." />
+<img src="./.github/assets/approval-demo.gif" width="960" alt="Animated illustration: Claude Code calls github__delete_file through Toolstile and receives an approval-required result with a review link. The Approvals page shows the agent, the GitHub connection, the account used and the exact parameters; the reviewer selects Deny, the retry is refused and the file stays in the repository." />
 
 [![Website](https://img.shields.io/badge/website-toolstile.com-1d4ed8?style=flat-square)](https://www.toolstile.com)
 [![Docs](https://img.shields.io/badge/docs-toolstile.com%2Fdocs-1d4ed8?style=flat-square)](https://www.toolstile.com/docs)
