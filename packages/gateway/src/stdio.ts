@@ -174,6 +174,9 @@ export class LocalCommandTransport implements Transport {
 			this.#inner.onerror = (error) => this.onerror?.(error);
 			this.#inner.onclose = () => this.onclose?.();
 			state.started = this.#inner.start();
+			// Handled once the launcher returns; until then a failed spawn (such as a missing
+			// command) must not become an unhandled rejection.
+			state.started.catch(() => {});
 			// The SDK keeps its child private; its exit, not the end of its pipes, frees the slot.
 			const child = (this.#inner as unknown as { _process?: ChildProcess })
 				._process;

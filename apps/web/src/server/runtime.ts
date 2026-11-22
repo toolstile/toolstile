@@ -507,10 +507,18 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 	 * each check reads the latest commit, and a spawn is never repeated.
 	 */
 	const commandStart = (actor: Actor, work: () => Promise<void>) =>
-		transaction(pool, work, {
-			isolation: "read committed",
-			fences: [accountFence(actor.userId)],
-		});
+		transaction(
+			pool,
+			async (tx) => {
+				// A request that waited for a slot may have outlived its session.
+				await checkAccount(tx, actor);
+				await work();
+			},
+			{
+				isolation: "read committed",
+				fences: [accountFence(actor.userId)],
+			},
+		);
 	/** Saves a local command after it started and answered the MCP handshake. */
 	async function addLocalCommand(
 		actor: Actor,

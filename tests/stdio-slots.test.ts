@@ -413,6 +413,20 @@ it("lets no revocation land between the caller's final check and the spawn", asy
 	expect(events).toContain("revoked");
 });
 
+it("returns a missing command's error from an asynchronous launcher", async () => {
+	const transport = new LocalCommandTransport(
+		{ command: "toolstile-command-that-does-not-exist", args: [], env: {} },
+		{
+			// The launcher keeps its lock a little after the spawn, as a database one does.
+			launch: async (spawn) => {
+				spawn();
+				await new Promise((resolve) => setTimeout(resolve, 200));
+			},
+		},
+	);
+	await expect(transport.start()).rejects.toThrow("command not found");
+});
+
 it("refuses queued and new starts at shutdown and stops running children", async () => {
 	const held = await fill();
 	const marker = join(directory, "queued");

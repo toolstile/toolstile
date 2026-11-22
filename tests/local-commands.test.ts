@@ -271,6 +271,64 @@ describe("local commands in local mode", () => {
 		expect(connection?.status).toBe("reachable");
 	}, 60_000);
 
+	it("never starts a queued command for a session that ended while it waited", async () => {
+		const slow = await addLocalCommand("operator", {
+			command: process.execPath,
+			args: [script, "--slow-list"],
+			label: "Slow too",
+		});
+		// A second session of the same operator, signed out while its request waits for a slot.
+		const signIn = await fetch(`${origin}/api/auth/sign-in/email`, {
+			method: "POST",
+			headers: { Origin: origin, "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "operator@test.invalid", password }),
+		});
+		const session = signIn.headers
+			.getSetCookie()
+			.map((value) => value.split(";")[0])
+			.join("; ");
+		const holders = Array.from({ length: 8 }, () => new AbortController());
+		const held = holders.map((controller) =>
+			fetch(`${origin}/api/rpc/verify`, {
+				method: "POST",
+				signal: controller.signal,
+				headers: {
+					cookie: cookies.operator,
+					origin,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ json: { id: slow.body.id } }),
+			}).catch(() => undefined),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		const marker = join(directory, "ended-session-ran");
+		const queued = fetch(`${origin}/api/rpc/addLocalCommand`, {
+			method: "POST",
+			headers: { cookie: session, origin, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				json: {
+					command: process.execPath,
+					args: [
+						"-e",
+						`require("fs").writeFileSync(${JSON.stringify(marker)},"x")`,
+					],
+				},
+			}),
+		});
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const signOut = await fetch(`${origin}/api/auth/sign-out`, {
+			method: "POST",
+			headers: { cookie: session, origin, "Content-Type": "application/json" },
+			body: "{}",
+		});
+		expect(signOut.status).toBe(200);
+		for (const controller of holders) controller.abort();
+		await Promise.all(held);
+		expect((await queued).status).toBe(403);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(existsSync(marker)).toBe(false);
+	}, 60_000);
+
 	it("serves a command's granted tools to an agent and refuses it once turned off", async () => {
 		const added = await addLocalCommand("operator", {
 			command: process.execPath,
