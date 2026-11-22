@@ -15,7 +15,7 @@
 
 ## Operating an instance
 
-- [Installation](installation.md), [local operation and recovery](local-operation.md), [Docker Compose](containers.md), [Kubernetes](kubernetes.md)
+- [Installation](installation.md), [local operation and recovery](local-operation.md) (including `npx toolstile server start`), [Docker Compose](containers.md), [Kubernetes](kubernetes.md)
 - [Approvals](approvals.md), [tool review](tool-review.md), [telemetry and debug capture](telemetry.md)
 - [Security reporting](../SECURITY.md)
 

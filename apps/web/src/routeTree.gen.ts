@@ -34,6 +34,7 @@ import { Route as AppInstanceRouteImport } from './routes/app.instance'
 import { Route as AppToolReviewsRouteImport } from './routes/app.tool-reviews'
 import { Route as AuthIndexRouteImport } from './routes/auth.index'
 import { Route as AuthRecoverAccountRouteImport } from './routes/auth.recover-account'
+import { Route as AuthSetupRouteImport } from './routes/auth.setup'
 import { Route as AuthSignInRouteImport } from './routes/auth.sign-in'
 import { Route as AuthSignUpRouteImport } from './routes/auth.sign-up'
 import { Route as AuthDeviceRouteImport } from './routes/auth_.device'
@@ -181,6 +182,11 @@ const AuthRecoverAccountRoute = AuthRecoverAccountRouteImport.update({
   path: '/recover-account',
   getParentRoute: () => AuthRoute,
 } as any)
+const AuthSetupRoute = AuthSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => AuthRoute,
+} as any)
 const AuthSignInRoute = AuthSignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
@@ -313,6 +319,7 @@ export interface FileRoutesByFullPath {
   '/app/instance': typeof AppInstanceRoute
   '/app/tool-reviews': typeof AppToolReviewsRoute
   '/auth/recover-account': typeof AuthRecoverAccountRoute
+  '/auth/setup': typeof AuthSetupRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
   '/auth/device': typeof AuthDeviceRoute
@@ -359,6 +366,7 @@ export interface FileRoutesByTo {
   '/app/instance': typeof AppInstanceRoute
   '/app/tool-reviews': typeof AppToolReviewsRoute
   '/auth/recover-account': typeof AuthRecoverAccountRoute
+  '/auth/setup': typeof AuthSetupRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
   '/auth/device': typeof AuthDeviceRoute
@@ -408,6 +416,7 @@ export interface FileRoutesById {
   '/app/instance': typeof AppInstanceRoute
   '/app/tool-reviews': typeof AppToolReviewsRoute
   '/auth/recover-account': typeof AuthRecoverAccountRoute
+  '/auth/setup': typeof AuthSetupRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-up': typeof AuthSignUpRoute
   '/auth_/device': typeof AuthDeviceRoute
@@ -458,6 +467,7 @@ export interface FileRouteTypes {
     | '/app/instance'
     | '/app/tool-reviews'
     | '/auth/recover-account'
+    | '/auth/setup'
     | '/auth/sign-in'
     | '/auth/sign-up'
     | '/auth/device'
@@ -504,6 +514,7 @@ export interface FileRouteTypes {
     | '/app/instance'
     | '/app/tool-reviews'
     | '/auth/recover-account'
+    | '/auth/setup'
     | '/auth/sign-in'
     | '/auth/sign-up'
     | '/auth/device'
@@ -552,6 +563,7 @@ export interface FileRouteTypes {
     | '/app/instance'
     | '/app/tool-reviews'
     | '/auth/recover-account'
+    | '/auth/setup'
     | '/auth/sign-in'
     | '/auth/sign-up'
     | '/auth_/device'
@@ -784,6 +796,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRecoverAccountRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/auth/setup': {
+      id: '/auth/setup'
+      path: '/setup'
+      fullPath: '/auth/setup'
+      preLoaderRoute: typeof AuthSetupRouteImport
+      parentRoute: typeof AuthRoute
+    }
     '/auth/sign-in': {
       id: '/auth/sign-in'
       path: '/sign-in'
@@ -986,6 +1005,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 interface AuthRouteChildren {
   AuthRecoverAccountRoute: typeof AuthRecoverAccountRoute
+  AuthSetupRoute: typeof AuthSetupRoute
   AuthSignInRoute: typeof AuthSignInRoute
   AuthSignUpRoute: typeof AuthSignUpRoute
   AuthIndexRoute: typeof AuthIndexRoute
@@ -993,6 +1013,7 @@ interface AuthRouteChildren {
 
 const AuthRouteChildren: AuthRouteChildren = {
   AuthRecoverAccountRoute: AuthRecoverAccountRoute,
+  AuthSetupRoute: AuthSetupRoute,
   AuthSignInRoute: AuthSignInRoute,
   AuthSignUpRoute: AuthSignUpRoute,
   AuthIndexRoute: AuthIndexRoute,

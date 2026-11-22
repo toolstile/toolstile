@@ -131,6 +131,7 @@ import {
 	type profiles,
 } from "./schema";
 import { createSetupRouter } from "./setup";
+import { consumeSetupLink, setupLinkUsable } from "./setup-link";
 import { createTelemetryService } from "./telemetry";
 import { createInstanceUpstreamOAuth } from "./upstream";
 /** Construct runtime services inside the request owner. Module evaluation must
@@ -210,6 +211,8 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 	const registration = new AsyncLocalStorage<{
 		email: string;
 		token: string;
+		/** A setup-link sign-up: its token, and whether creating the account used it up. */
+		setup?: { token: string; consumed: boolean };
 	}>();
 	const oauthSelection = createOAuthSelectionStore(pool);
 	const auth = createAuth({
@@ -238,6 +241,11 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		},
 		canRegister: async (email, identity) => {
 			const local = registration.getStore();
+			if (local?.setup) {
+				if (local.email !== email.toLowerCase()) return false;
+				local.setup.consumed = await consumeSetupLink(pool, local.setup.token);
+				return local.setup.consumed;
+			}
 			return operatorService.canRegister(
 				email,
 				local?.email === email.toLowerCase()
@@ -1531,6 +1539,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		) {
 			const body = await authJsonBody(request);
 			if (body instanceof Response) return body;
+			if (body.setupToken !== undefined) return setupSignUp(request, body);
 			const token = String(
 				body.invitationToken ?? invitationCookie(request) ?? "",
 			);
@@ -1570,6 +1579,43 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			return registration.run({ email, token }, () => auth.handler(forwarded));
 		}
 		return auth.handler(request);
+	}
+	/** The first account of a fresh local instance, created through its one-time setup link
+	 * (setup-link.ts) and made the instance operator. */
+	async function setupSignUp(request: Request, body: Record<string, unknown>) {
+		const refused = () =>
+			Response.json(
+				{
+					code: "SETUP_LINK_UNAVAILABLE",
+					message: "This setup link was already used or has expired",
+				},
+				{ status: 403, headers: { "Cache-Control": "no-store" } },
+			);
+		if (request.headers.get("origin") !== env.BETTER_AUTH_URL)
+			return new Response("Invalid origin", { status: 403 });
+		const token = String(body.setupToken);
+		if (!(await setupLinkUsable(pool, token))) return refused();
+		const email = String(body.email ?? "")
+			.trim()
+			.toLowerCase();
+		const forwarded: Record<string, unknown> = {
+			...body,
+			email,
+			// The setup form asks only for email and password.
+			name: String(body.name ?? "").trim() || email.split("@")[0],
+		};
+		delete forwarded.setupToken;
+		delete forwarded.invitationToken;
+		const setup = { token, consumed: false };
+		const response = await registration.run({ email, token: "", setup }, () =>
+			auth.handler(jsonAuthRequest(request, forwarded)),
+		);
+		if (!setup.consumed) return response;
+		await pool.query(
+			'insert into profiles("userId",operator) select id,true from "user" where email=$1 on conflict("userId") do update set operator=true',
+			[email],
+		);
+		return response;
 	}
 	async function actorFromRequest(request: Request): Promise<Actor> {
 		const session = await auth.api.getSession({ headers: request.headers });

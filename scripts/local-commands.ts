@@ -7,6 +7,10 @@ import {
 	grantOperator,
 	inviteUser,
 } from "../apps/web/scripts/admin-operations";
+import {
+	issueSetupLink,
+	SETUP_LINK_MINUTES,
+} from "../apps/web/src/server/setup-link";
 import { openDatabase } from "../packages/database/src/index";
 import { migrateDatabaseWithLock } from "../packages/database/src/migrate";
 import { backupInstance, restoreInstance } from "./local-storage";
@@ -76,7 +80,24 @@ export async function runLocal(args: string[], runtime: LocalRuntime) {
 		console.log(`Instance initialized in ${directory}`);
 	} else if (command === "start") {
 		await migrate(runtime.migrationsFolder());
+		const origin = process.env.BETTER_AUTH_URL ?? "";
+		const local = offersSetupLink(origin, process.env.HOST ?? "");
+		const setup = local ? await withDatabase(issueSetupLink) : undefined;
 		await runtime.startServer();
+		if (local && (await listening(origin)))
+			console.log(
+				setup
+					? `
+Toolstile is running at ${origin}
+
+Finish setup (link works once, expires in ${SETUP_LINK_MINUTES} minutes):
+  ${origin}/auth/setup#${setup}
+
+Then connect Claude Code:
+  claude mcp add --transport http toolstile ${origin}/mcp
+`
+					: `\nToolstile is running at ${origin}\n`,
+			);
 	} else if (command === "bootstrap" || command === "operator") {
 		if (!argument?.includes("@"))
 			throw new Error(`Usage: ${runtime.name} ${command} email@example.com`);
@@ -147,6 +168,45 @@ function initialize(
 		)}\n`,
 		{ flag: "wx", mode: 0o600 },
 	);
+}
+
+/**
+ * Whether `start` creates the first account through a one-time setup link: only when the
+ * server listens on loopback and its origin is plain HTTP on loopback, so the link can only
+ * be opened on this machine. Other instances invite their first account with `bootstrap`.
+ */
+export function offersSetupLink(origin: string, listen: string) {
+	const url = URL.parse(origin);
+	return (
+		["127.0.0.1", "::1"].includes(listen) &&
+		url?.protocol === "http:" &&
+		["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+	);
+}
+
+async function withDatabase<T>(
+	work: (pool: ReturnType<typeof openDatabase>["pool"]) => Promise<T>,
+) {
+	const { pool } = openDatabase(process.env.DATABASE_URL ?? "");
+	try {
+		return await work(pool);
+	} finally {
+		await pool.end();
+	}
+}
+
+/** Waits until the server answers, so the printed links work when shown. */
+async function listening(origin: string) {
+	const deadline = Date.now() + 60_000;
+	while (Date.now() < deadline) {
+		try {
+			const response = await fetch(`${origin}/live`);
+			await response.body?.cancel();
+			if (response.ok) return true;
+		} catch {}
+		await new Promise((done) => setTimeout(done, 100));
+	}
+	return false;
 }
 
 /** Configure this process for the instance; the server reads it when imported. */

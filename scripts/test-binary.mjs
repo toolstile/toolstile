@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	rmSync,
 } from "node:fs";
+import { request } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -61,7 +62,7 @@ try {
 	);
 	if (existsSync(data)) throw new Error("A refused init created the instance");
 	await run("init", "--origin", origin, "--port", String(port));
-	const { stdout: invite } = await run("bootstrap", "owner@example.com");
+	const { stdout: invite } = await run("bootstrap", "member@example.com");
 	const link = invite.match(/(http:\/\/\S+)/)?.[1];
 	if (!link?.startsWith(`${origin}/api/auth/accept-invitation/ts_`))
 		throw new Error("bootstrap printed no invitation link");
@@ -70,10 +71,75 @@ try {
 	server = spawn(binary, ["start", "--data-dir", data], {
 		env: environment,
 		cwd: work,
-		stdio: ["ignore", "inherit", "inherit"],
+		stdio: ["ignore", "pipe", "inherit"],
 	});
 	const exited = new Promise((resolve) => server.once("exit", resolve));
+	let output = "";
+	server.stdout.on("data", (chunk) => {
+		output += chunk;
+		process.stdout.write(chunk);
+	});
 	await ready(origin);
+	// An instance without accounts prints its one-time setup link once it is listening.
+	const deadline = Date.now() + 30_000;
+	while (!output.includes("Then connect Claude Code")) {
+		if (Date.now() > deadline) throw new Error("start printed no setup link");
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	const setupToken = output.match(/\/auth\/setup#([\w-]{43})\n/)?.[1];
+	if (
+		!setupToken ||
+		!output.includes(`
+Toolstile is running at ${origin}
+
+Finish setup (link works once, expires in 15 minutes):
+  ${origin}/auth/setup#${setupToken}
+
+Then connect Claude Code:
+  claude mcp add --transport http toolstile ${origin}/mcp
+`)
+	)
+		throw new Error("start printed an unexpected setup block");
+	if ((await hostStatus(`rebound.example:${port}`)) !== 421)
+		throw new Error("A request for another host name was served");
+	const setupPage = await fetch(`${origin}/auth/setup`);
+	await setupPage.body?.cancel();
+	if (!setupPage.ok) throw new Error("The setup page did not render");
+	const setup = (from, email) =>
+		fetch(`${origin}/api/auth/sign-up/email`, {
+			method: "POST",
+			headers: { "content-type": "application/json", origin: from },
+			body: JSON.stringify({
+				email,
+				password: "binary-smoke-test-password",
+				setupToken,
+			}),
+		});
+	const crossSite = await setup("http://rebound.example", "owner@example.com");
+	await crossSite.body?.cancel();
+	if (crossSite.status !== 403)
+		throw new Error(`Cross-site setup returned ${crossSite.status}`);
+	const owner = await setup(origin, "owner@example.com");
+	await owner.body?.cancel();
+	if (!owner.ok) throw new Error(`Setup sign-up returned ${owner.status}`);
+	const snapshot = await fetch(`${origin}/api/rpc/snapshot`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			origin,
+			cookie: owner.headers
+				.getSetCookie()
+				.map((cookie) => cookie.split(";")[0])
+				.join("; "),
+		},
+		body: "{}",
+	});
+	if (!(await snapshot.text()).includes('"operator":true'))
+		throw new Error("The setup account is not the instance operator");
+	const again = await setup(origin, "second@example.com");
+	await again.body?.cancel();
+	if (again.status !== 403)
+		throw new Error(`A used setup link returned ${again.status}`);
 	const signIn = await fetch(`${origin}/auth/sign-in`);
 	const page = await signIn.text();
 	const script = page.match(/\/assets\/[^"]+\.js/)?.[0];
@@ -88,8 +154,8 @@ try {
 		method: "POST",
 		headers: { "content-type": "application/json", origin },
 		body: JSON.stringify({
-			name: "Owner",
-			email: "owner@example.com",
+			name: "Member",
+			email: "member@example.com",
 			password: "binary-smoke-test-password",
 			invitationToken: link.split("/").at(-1),
 		}),
@@ -126,10 +192,33 @@ try {
 		env: environment,
 		cwd: work,
 	});
+	// A release build names its version; the CLI reports it after installing.
+	if (
+		process.env.TOOLSTILE_VERSION &&
+		version.trim() !== process.env.TOOLSTILE_VERSION
+	)
+		throw new Error(
+			`version printed ${version.trim()}, expected ${process.env.TOOLSTILE_VERSION}`,
+		);
 	console.log(`${name} ${version.trim()}: lifecycle passed`);
 } finally {
 	server?.kill("SIGKILL");
 	rmSync(work, { recursive: true, force: true });
+}
+
+/** fetch cannot name another Host, so use node:http. */
+function hostStatus(host) {
+	return new Promise((resolve, reject) => {
+		request(
+			{ host: "127.0.0.1", port, path: "/auth/sign-in", headers: { host } },
+			(response) => {
+				response.resume();
+				resolve(response.statusCode);
+			},
+		)
+			.once("error", reject)
+			.end();
+	});
 }
 
 async function ready(url) {

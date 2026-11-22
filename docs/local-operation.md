@@ -1,23 +1,32 @@
 # Local PGlite instance
 
-A local instance runs the production server with PGlite, which embeds PostgreSQL in the server process: no Docker, PostgreSQL server, Redis or hosted account. Run it as the single executable `toolstile-server` or from a source checkout; both run the same commands on the same data directory. Local mode is tested on macOS arm64. Linux and Windows are not yet verified.
+A local instance runs the production server with PGlite, which embeds PostgreSQL in the server process: no Docker, PostgreSQL server, Redis or hosted account. Run it as the single executable `toolstile-server` or from a source checkout; both run the same commands on the same data directory. The executable is built and its lifecycle tested in CI on macOS arm64, Linux x64 and Linux arm64. Windows is not supported.
+
+## With npx
+
+```sh
+npx toolstile server start
+```
+
+The `toolstile` CLI downloads `toolstile-server` for your platform from the latest [release](https://github.com/toolstile/toolstile/releases), checks it against the release's SHA-256 checksum, initializes an instance in `~/.local/share/toolstile` on first use and runs `start` in the foreground. Stop it with Ctrl-C. The rest of this page applies unchanged: run the commands below as `npx toolstile server <command>`, or run the installed executable directly.
 
 ## Single executable
 
-`toolstile-server` is a Node.js 26 single executable application: Node.js, the server, its static assets, PGlite's WebAssembly and the migrations in one file, with nothing else to install. Build it for the current platform from a source checkout (below):
+`toolstile-server` is a Node.js 26 single executable application: Node.js, the server, its static assets, PGlite's WebAssembly and the migrations in one file, with nothing else to install. Each [release](https://github.com/toolstile/toolstile/releases) publishes `toolstile-server-<os>-<arch>.br`, the Brotli-compressed executable for `darwin-arm64`, `linux-x64` and `linux-arm64`, and `toolstile-server-<os>-<arch>.sha256`, the checksum of the decompressed executable. Each `.br` file carries a GitHub build provenance attestation; check one with `gh attestation verify toolstile-server-linux-x64.br --repo toolstile/toolstile`.
+
+To build it for the current platform from a source checkout (below):
 
 ```sh
 vp run build:binary
 ```
 
-This writes `dist/toolstile-server-<os>-<arch>` and its SHA-256 checksum. Install it on your `PATH` under the name `toolstile-server`, for example on macOS on Apple silicon:
+This writes `dist/toolstile-server-<os>-<arch>` and its SHA-256 checksum (`--compress` also writes the `.br` file). Install it on your `PATH` under the name `toolstile-server`, for example on macOS on Apple silicon:
 
 ```sh
 mkdir -p ~/.local/bin
 install -m 755 dist/toolstile-server-darwin-arm64 ~/.local/bin/toolstile-server
 export PATH="$HOME/.local/bin:$PATH" # add this line to your shell profile to keep it
 toolstile-server init
-toolstile-server bootstrap you@example.com
 toolstile-server start
 ```
 
@@ -31,13 +40,37 @@ The source checkout uses [Vite+](https://viteplus.dev) (`vp`) with Node.js 26 (`
 vp install --frozen-lockfile
 vp run build
 node scripts/local.mjs init
+node scripts/local.mjs start
+```
+
+## The first account
+
+When an instance has no accounts, listens on loopback and uses a plain HTTP loopback origin (the defaults), `start` prints a one-time setup link once the server is listening:
+
+```text
+Toolstile is running at http://127.0.0.1:4310
+
+Finish setup (link works once, expires in 15 minutes):
+  http://127.0.0.1:4310/auth/setup#<token>
+
+Then connect Claude Code:
+  claude mcp add --transport http toolstile http://127.0.0.1:4310/mcp
+```
+
+Open the link and create your account with an email and password. That account becomes the instance operator, signs in and lands in the dashboard's guided setup. The token sits in the URL fragment, so the browser never sends it to the server's access log or in a Referer header. The instance stores only its SHA-256 digest. The link works once and expires after 15 minutes. Each `start` while there are still no accounts issues a new link and the previous one stops working; once any account exists, `start` prints no link.
+
+The setup request must come from the instance's own origin. An instance on a plain HTTP loopback origin also refuses requests whose `Host` header names any other host (status 421), so a web page that points its own host name at 127.0.0.1 (DNS rebinding) cannot reach it.
+
+An instance with an HTTPS origin, one listening beyond loopback, or one that already has accounts invites its first or next account with `bootstrap` instead, which also works on every instance:
+
+```sh
 node scripts/local.mjs bootstrap you@example.com
 node scripts/local.mjs start
 ```
 
 While `start` is running, open the printed invitation URL (valid for 24 hours) and register. That account can add connections, connect agents and set access straight away.
 
-To invite other people or change instance settings, make the account an operator. Stop the server (Ctrl-C) first, because the administrative commands open the same PGlite directory, then start it again:
+To invite other people or change instance settings, the account needs operator access. The setup-link account already has it. For an invited account, stop the server (Ctrl-C) first, because the administrative commands open the same PGlite directory, then start it again:
 
 ```sh
 node scripts/local.mjs operator you@example.com
@@ -45,6 +78,8 @@ node scripts/local.mjs start
 ```
 
 Operators manage registration and users without viewing another user's connections, credentials or activity. Registration defaults to invitations. Each person remains independent; this installation does not add team collaboration.
+
+## Data and lifecycle
 
 The default origin is `http://127.0.0.1:4310`. The persistent directory defaults to `~/.local/share/toolstile`. Use `--data-dir /absolute/path` consistently on every command, or set `TOOLSTILE_DATA_DIR`. `instance.json` contains the stable authentication and encryption keys and listening configuration; `pglite/` contains the application data. Keep both private, on the server's local disk. Do not put the database on NFS, SMB, a cloud-synced folder or a file share. Devices connect to the server's HTTP endpoint and never open the database file. Keep the machine awake while clients need the gateway.
 
@@ -96,4 +131,4 @@ Restore verifies checksums, validates the saved configuration and opens the arch
 
 ## Verification status
 
-macOS arm64 is the exercised local platform; local tests do not certify other operating systems or external OAuth registrations.
+CI runs the executable lifecycle on macOS arm64, Linux x64 and Linux arm64; the PGlite lifecycle suite runs on Linux and is exercised locally on macOS arm64. Local tests do not certify other operating systems or external OAuth registrations.
