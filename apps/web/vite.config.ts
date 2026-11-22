@@ -22,7 +22,7 @@ export default defineConfig({
 		tanstackStart(),
 		nitro({
 			preset: "node-server",
-			plugins: ["./server/plugins/lifecycle.ts"],
+			plugins: ["./server/plugins/host.ts", "./server/plugins/lifecycle.ts"],
 			traceDeps: ["@electric-sql/pglite*", "react*", "react-dom*"],
 			// The single executable has no public folder beside it, so its build embeds
 			// the static assets in the server bundle.

@@ -1,11 +1,12 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-	copyFileSync,
+	chmodSync,
 	existsSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:net";
@@ -13,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { brotliDecompressSync } from "node:zlib";
 
 // Drives the built single executable through the local instance lifecycle with an
 // empty environment, so nothing from the source checkout or the host's Node.js helps.
@@ -20,8 +22,12 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const name = `toolstile-server-${process.platform}-${process.arch}`;
 const built = join(root, "dist", name);
 if (!existsSync(built)) throw new Error("Build first with vp run build:binary");
+// A release build (--compress) publishes the .br file, so test the bytes it decompresses to.
+const executable = existsSync(`${built}.br`)
+	? brotliDecompressSync(readFileSync(`${built}.br`))
+	: readFileSync(built);
 const [digest] = readFileSync(`${built}.sha256`, "utf8").split(" ");
-if (createHash("sha256").update(readFileSync(built)).digest("hex") !== digest)
+if (createHash("sha256").update(executable).digest("hex") !== digest)
 	throw new Error("The executable does not match its checksum");
 
 const execute = promisify(execFile);
@@ -30,7 +36,8 @@ const work = mkdtempSync(join(tmpdir(), "toolstile-binary-"));
 // Run a copy outside the checkout: beside the source, a missed bundling would still
 // resolve packages from its node_modules and pass.
 const binary = join(work, name);
-copyFileSync(built, binary);
+writeFileSync(binary, executable);
+chmodSync(binary, 0o755);
 const data = join(work, "instance");
 const run = (...args) =>
 	execute(binary, [...args, "--data-dir", data], {
@@ -100,7 +107,7 @@ Then connect Claude Code:
 `)
 	)
 		throw new Error("start printed an unexpected setup block");
-	if ((await hostStatus(`rebound.example:${port}`)) !== 421)
+	if ((await hostStatus("/auth/sign-in", `rebound.example:${port}`)) !== 421)
 		throw new Error("A request for another host name was served");
 	const setupPage = await fetch(`${origin}/auth/setup`);
 	await setupPage.body?.cancel();
@@ -147,6 +154,9 @@ Then connect Claude Code:
 	const asset = await fetch(`${origin}${script}`);
 	if (!asset.ok || !asset.headers.get("content-type")?.includes("javascript"))
 		throw new Error("An embedded static asset was not served");
+	// Nitro serves static assets before the application; the Host check runs ahead of both.
+	if ((await hostStatus(script, `rebound.example:${port}`)) !== 421)
+		throw new Error("A static asset was served for another host name");
 	const mcp = await fetch(`${origin}/mcp`, { method: "POST" });
 	if (mcp.status !== 401)
 		throw new Error(`Unauthenticated MCP returned ${mcp.status}`);
@@ -207,10 +217,10 @@ Then connect Claude Code:
 }
 
 /** fetch cannot name another Host, so use node:http. */
-function hostStatus(host) {
+function hostStatus(path, host) {
 	return new Promise((resolve, reject) => {
 		request(
-			{ host: "127.0.0.1", port, path: "/auth/sign-in", headers: { host } },
+			{ host: "127.0.0.1", port, path, headers: { host } },
 			(response) => {
 				response.resume();
 				resolve(response.statusCode);

@@ -23,7 +23,10 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          version="$(jq -r .version package.json)"
+          if ! version="$(jq -er '.version | select(type == "string" and length > 0)' package.json)"; then
+            echo "::error::package.json has no version"
+            exit 1
+          fi
           if [ "$TAG" != "v$version" ]; then
             echo "::error::Tag $TAG does not match package.json version $version (expected v$version)"
             exit 1

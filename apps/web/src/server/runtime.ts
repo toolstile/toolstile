@@ -110,6 +110,7 @@ import {
 	notInArray,
 	or,
 } from "drizzle-orm";
+import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
 import { createAccountEmail } from "./account-email";
 import { createAccountService } from "./accounts";
@@ -131,7 +132,11 @@ import {
 	type profiles,
 } from "./schema";
 import { createSetupRouter } from "./setup";
-import { consumeSetupLink, setupLinkUsable } from "./setup-link";
+import {
+	createSetupAccount,
+	offersSetupLink,
+	setupLinkUsable,
+} from "./setup-link";
 import { createTelemetryService } from "./telemetry";
 import { createInstanceUpstreamOAuth } from "./upstream";
 /** Construct runtime services inside the request owner. Module evaluation must
@@ -211,8 +216,6 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 	const registration = new AsyncLocalStorage<{
 		email: string;
 		token: string;
-		/** A setup-link sign-up: its token, and whether creating the account used it up. */
-		setup?: { token: string; consumed: boolean };
 	}>();
 	const oauthSelection = createOAuthSelectionStore(pool);
 	const auth = createAuth({
@@ -241,11 +244,6 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		},
 		canRegister: async (email, identity) => {
 			const local = registration.getStore();
-			if (local?.setup) {
-				if (local.email !== email.toLowerCase()) return false;
-				local.setup.consumed = await consumeSetupLink(pool, local.setup.token);
-				return local.setup.consumed;
-			}
 			return operatorService.canRegister(
 				email,
 				local?.email === email.toLowerCase()
@@ -1581,7 +1579,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		return auth.handler(request);
 	}
 	/** The first account of a fresh local instance, created through its one-time setup link
-	 * (setup-link.ts) and made the instance operator. */
+	 * (setup-link.ts) as the instance operator, then signed in. */
 	async function setupSignUp(request: Request, body: Record<string, unknown>) {
 		const refused = () =>
 			Response.json(
@@ -1593,29 +1591,57 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			);
 		if (request.headers.get("origin") !== env.BETTER_AUTH_URL)
 			return new Response("Invalid origin", { status: 403 });
-		const token = String(body.setupToken);
-		if (!(await setupLinkUsable(pool, token))) return refused();
-		const email = String(body.email ?? "")
-			.trim()
-			.toLowerCase();
-		const forwarded: Record<string, unknown> = {
-			...body,
+		// The same rule `start` used to print the link, against the address the server binds.
+		if (
+			!offersSetupLink(
+				env.BETTER_AUTH_URL,
+				process.env.NITRO_HOST || process.env.HOST || "",
+			)
+		)
+			return refused();
+		const input = z
+			.object({
+				setupToken: z.string().max(200),
+				email: z.email().max(320),
+				// The sign-up rules (packages/auth): 12 to 128 characters, not only spaces.
+				password: z
+					.string()
+					.min(12)
+					.max(128)
+					.refine((value) => !!value.trim()),
+			})
+			.safeParse({
+				...body,
+				email: String(body.email ?? "")
+					.trim()
+					.toLowerCase(),
+			});
+		if (!input.success)
+			return Response.json(
+				{
+					message: "Enter a valid email and a password of 12 to 128 characters",
+				},
+				{ status: 400 },
+			);
+		const { setupToken, email, password } = input.data;
+		if (!(await setupLinkUsable(pool, setupToken))) return refused();
+		const created = await createSetupAccount(pool, setupToken, {
 			email,
 			// The setup form asks only for email and password.
-			name: String(body.name ?? "").trim() || email.split("@")[0],
-		};
-		delete forwarded.setupToken;
-		delete forwarded.invitationToken;
-		const setup = { token, consumed: false };
-		const response = await registration.run({ email, token: "", setup }, () =>
-			auth.handler(jsonAuthRequest(request, forwarded)),
+			name: email.split("@")[0] || email,
+			passwordHash: await hashPassword(password),
+		}).catch(() => undefined);
+		if (!created) return refused();
+		const headers = new Headers(request.headers);
+		headers.delete("content-length");
+		return auth.handler(
+			new Request(new URL("/api/auth/sign-in/email", request.url), {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ email, password }),
+				signal: request.signal,
+			}),
 		);
-		if (!setup.consumed) return response;
-		await pool.query(
-			'insert into profiles("userId",operator) select id,true from "user" where email=$1 on conflict("userId") do update set operator=true',
-			[email],
-		);
-		return response;
 	}
 	async function actorFromRequest(request: Request): Promise<Actor> {
 		const session = await auth.api.getSession({ headers: request.headers });
