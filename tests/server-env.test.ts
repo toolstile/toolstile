@@ -47,3 +47,26 @@ it.each([["apps/web/.env.example"], [".env.example"]])(
 		expect(error?.message).not.toContain(String(example.BETTER_AUTH_SECRET));
 	},
 );
+
+it("turns local commands on only by name and only in local mode", async () => {
+	await expect(load(valid)).resolves.toMatchObject({
+		env: { localCommands: false },
+	});
+	await expect(
+		load({ ...valid, TOOLSTILE_STDIO: " On " }),
+	).resolves.toMatchObject({ env: { localCommands: true } });
+	await expect(load({ ...valid, TOOLSTILE_STDIO: "yes" })).rejects.toThrow(
+		"- TOOLSTILE_STDIO: TOOLSTILE_STDIO must be on or off",
+	);
+	// A PostgreSQL server (containers and Kubernetes) refuses to start with it on.
+	const postgres = {
+		...valid,
+		DATABASE_URL: "postgresql://toolstile@127.0.0.1/toolstile",
+	};
+	await expect(load({ ...postgres, TOOLSTILE_STDIO: "on" })).rejects.toThrow(
+		"TOOLSTILE_STDIO=on is supported only in local mode",
+	);
+	await expect(
+		load({ ...postgres, TOOLSTILE_STDIO: "off" }),
+	).resolves.toMatchObject({ env: { localCommands: false } });
+});

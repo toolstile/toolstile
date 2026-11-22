@@ -22,12 +22,39 @@ const schema = z.object({
 		message:
 			"ENCRYPTION_KEY must be 64 hex characters (`openssl rand -hex 32`)",
 	}),
+	/** `on` lets operators add local commands (stdio MCP servers); local mode only. */
+	TOOLSTILE_STDIO: z
+		.string()
+		.optional()
+		.transform((value) => value?.trim().toLowerCase() || "off")
+		.pipe(
+			z.enum(["on", "off"], {
+				message: "TOOLSTILE_STDIO must be on or off",
+			}),
+		),
 });
-const parsed = schema.safeParse(process.env);
+/** A PostgreSQL server URL; anything else is an embedded PGlite directory (local mode). */
+const postgresUrl = (value: string) => /^postgres(?:ql)?:\/\//i.test(value);
+const configuration = schema.superRefine((value, context) => {
+	// A child process runs as the server's user and can read its keys, so local commands
+	// are for one person's own computer, never a shared container or cluster deployment.
+	if (value.TOOLSTILE_STDIO === "on" && postgresUrl(value.DATABASE_URL))
+		context.addIssue({
+			code: "custom",
+			path: ["TOOLSTILE_STDIO"],
+			message:
+				"TOOLSTILE_STDIO=on is supported only in local mode (an embedded PGlite database); unset it or set it to off",
+		});
+});
+const parsed = configuration.safeParse(process.env);
 if (!parsed.success)
 	// Name the variables and problems only; never echo the configured values.
 	throw new Error(`Invalid server configuration:
 ${parsed.error.issues
 	.map((issue) => `- ${issue.path.join(".")}: ${issue.message}`)
 	.join("\n")}`);
-export const env = parsed.data;
+export const env = {
+	...parsed.data,
+	/** Operators may add local commands, and existing ones may run. */
+	localCommands: parsed.data.TOOLSTILE_STDIO === "on",
+};

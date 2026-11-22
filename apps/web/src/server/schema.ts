@@ -19,6 +19,7 @@ import {
 	dateTime,
 	index,
 	integer,
+	json,
 	pgTable,
 	primaryKey,
 	text,
@@ -126,6 +127,19 @@ export const allAgentGrants = pgTable(
 	},
 	(t) => [uniqueIndex("all_agent_grant_pair").on(t.ownerId, t.connectionId)],
 );
+/**
+ * What a local command connection (`connections.transport` `stdio`) runs: its program,
+ * arguments and environment. Values in `encryptedEnv` are secrets and never leave the server.
+ * Only an operator creates one, and it runs only while `TOOLSTILE_STDIO=on` in local mode.
+ */
+export const localCommands = pgTable("local_commands", {
+	connectionId: text()
+		.primaryKey()
+		.references(() => connections.id, { onDelete: "cascade" }),
+	command: text().notNull(),
+	args: json().$type<string[]>().notNull(),
+	encryptedEnv: text().notNull(),
+});
 /** Connections whose new and changed tools wait for review. */
 export const toolReviewSettings = pgTable("tool_review_settings", {
 	connectionId: text()

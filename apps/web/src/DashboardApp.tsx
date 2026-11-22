@@ -350,6 +350,12 @@ export function DashboardApp({
 				}
 				api={api}
 				connectionRequests={connectors}
+				// Only for operators of a server started with TOOLSTILE_STDIO=on in local mode.
+				localCommands={
+					data.localCommands
+						? { add: (input) => instanceApi.addLocalCommand(input) }
+						: undefined
+				}
 				reload={reload}
 				oauthStatus={search.oauth}
 				oauthConnectionId={search.oauthConnection}

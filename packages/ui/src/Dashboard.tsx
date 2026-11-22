@@ -33,6 +33,7 @@ import type { ActivityView } from "./ActivityPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { ComputerSetup } from "./ConnectAgent";
 import { ConnectionCheckNote } from "./ConnectionAddress";
+import { LocalCommandForm, type LocalCommandHost } from "./LocalCommandForm";
 import { controls } from "./Control.styles";
 import { CopyValue } from "./CopyValue";
 import { readCatalogCache, writeCatalogCache } from "./catalog-cache";
@@ -122,6 +123,7 @@ export function Dashboard({
 	data,
 	api,
 	connectionRequests,
+	localCommands,
 	reload,
 	renderAccountMenu,
 	extraNavigation = [],
@@ -180,6 +182,9 @@ export function Dashboard({
 		ConnectorClient,
 		"previewConnection" | "connectConnector"
 	>;
+	/** Offers a local command (stdio MCP server) in the connection dialog; pass it only when
+	 * the server runs local commands and this person may add them. */
+	localCommands?: LocalCommandHost;
 	reload(): Promise<void>;
 	/** The account button and menu under the sidebar brand, such as `UserMenu`. */
 	renderAccountMenu(menu: AccountMenuProps): ReactNode;
@@ -253,10 +258,14 @@ export function Dashboard({
 		[token, setToken] = useScopedState(localScope, ""),
 		[tokenAgentId, setTokenAgentId] = useScopedState(localScope, "");
 	const setNotice = useToastFeedback(localScope);
+	/** Feedback that must outlive a change of page, such as leaving the catalog after a save. */
+	const setAccountNotice = useToastFeedback(data.user.email);
 	const [navigationOverflows, setNavigationOverflows] = useState(false);
 	const navigationRef = useRef<HTMLElement>(null);
 	// Local dialog and row-edit state; the URL never carries them.
 	const [connectOpen, setConnectOpen] = useScopedState(localScope, false);
+	/** The connection dialog shows the local command form instead of the address. */
+	const [commandForm, setCommandForm] = useScopedState(localScope, false);
 	/** Pending destructive action awaiting the in-app confirmation. */
 	const [confirming, setConfirming] =
 		useScopedState<DashboardConfirmation | null>(localScope, null);
@@ -412,6 +421,7 @@ export function Dashboard({
 	useEffect(() => {
 		if (modal === "connection") return;
 		connectionDialog.current += 1;
+		setCommandForm(false);
 		setConnectionError("");
 		setDuplicateUrl("");
 		setCheckedAddress(null);
@@ -419,6 +429,7 @@ export function Dashboard({
 		setConnectionRequestId(crypto.randomUUID());
 	}, [
 		modal,
+		setCommandForm,
 		setConnectionError,
 		setDuplicateUrl,
 		setCheckedAddress,
@@ -1137,298 +1148,352 @@ export function Dashboard({
 					}
 					description={
 						modal === "connection"
-							? "Paste the server's address. Toolstile checks it, then you confirm the address to save."
+							? localCommands && commandForm
+								? "Run an MCP server that talks over standard input and output."
+								: "Paste the server's address. Toolstile checks it, then you confirm the address to save."
 							: "For an AI app or script that cannot sign in through a browser."
 					}
 					width="md"
 					onClose={() => onDialogChange(null)}
 				>
-					<form key={modal} onSubmit={submit}>
-						{modal === "connection" && (
-							<>
-								<label {...stylex.props(controls.label, local.firstField)}>
-									MCP server URL
-									{/* Checked in addConnection, so messages appear inline, not as browser bubbles. */}
-									<input
-										{...stylex.props(controls.input)}
-										name="url"
-										type="text"
-										inputMode="url"
-										autoComplete="off"
-										autoCapitalize="off"
-										spellCheck={false}
-										data-autofocus
-										placeholder="https://example.com/mcp"
-										aria-invalid={connectionError ? true : undefined}
-										aria-describedby={
-											connectionError
-												? "connection-url-error"
-												: duplicateUrl
-													? "connection-url-duplicate"
-													: undefined
-										}
-										onChange={(event) => {
-											setAddressValue(event.target.value);
-											setConnectionError("");
-											setDuplicateUrl("");
-											setError("");
-										}}
-									/>
-									{connectionError ? (
-										<span
-											id="connection-url-error"
-											role="alert"
-											{...stylex.props(local.fieldMessage, controls.error)}
-										>
-											{connectionError}
-										</span>
+					{modal === "connection" && localCommands && commandForm ? (
+						<LocalCommandForm
+							host={localCommands}
+							errorMessage={(e) =>
+								specificMessage(e) ??
+								"Toolstile could not add this local command. Check the command and try again."
+							}
+							onCancel={() => onDialogChange(null)}
+							onUseAddress={() => setCommandForm(false)}
+							onAdded={(id) => {
+								// Saved once the ID returns: the dialog closes now and the list refreshes in
+								// the background; a failed refresh is not a failed add.
+								if (activeScope.current !== generation) return;
+								setAdded(id);
+								setAddedAddress("");
+								setAddedSignedIn(false);
+								onDialogChange(null);
+								onNavigate("connections");
+								setAccountNotice("Local command added");
+								void reload().catch(() =>
+									setAccountNotice(
+										"Local command added. The page couldn't refresh; reload it to see the latest.",
+										"error",
+									),
+								);
+							}}
+						/>
+					) : (
+						<form key={modal} onSubmit={submit}>
+							{modal === "connection" && (
+								<>
+									<label {...stylex.props(controls.label, local.firstField)}>
+										MCP server URL
+										{/* Checked in addConnection, so messages appear inline, not as browser bubbles. */}
+										<input
+											{...stylex.props(controls.input)}
+											name="url"
+											type="text"
+											inputMode="url"
+											autoComplete="off"
+											autoCapitalize="off"
+											spellCheck={false}
+											data-autofocus
+											placeholder="https://example.com/mcp"
+											aria-invalid={connectionError ? true : undefined}
+											aria-describedby={
+												connectionError
+													? "connection-url-error"
+													: duplicateUrl
+														? "connection-url-duplicate"
+														: undefined
+											}
+											onChange={(event) => {
+												setAddressValue(event.target.value);
+												setConnectionError("");
+												setDuplicateUrl("");
+												setError("");
+											}}
+										/>
+										{connectionError ? (
+											<span
+												id="connection-url-error"
+												role="alert"
+												{...stylex.props(local.fieldMessage, controls.error)}
+											>
+												{connectionError}
+											</span>
+										) : null}
+									</label>
+									{addressConfirmed && checkedAddress && !duplicateUrl ? (
+										<ConnectionCheckNote preview={checkedAddress} />
 									) : null}
-								</label>
-								{addressConfirmed && checkedAddress && !duplicateUrl ? (
-									<ConnectionCheckNote preview={checkedAddress} />
-								) : null}
-								{duplicateUrl ? (
-									<div id="connection-url-duplicate" role="status">
-										<Notice tone="warning">
-											You already have an MCP connection to this address. Add it
-											again only to use a different account or token. The new
-											one gets a number after its name, or you can enter a name
-											under Advanced options.
-										</Notice>
-									</div>
-								) : null}
-								<Disclosure summary="Advanced options">
-									<label {...stylex.props(controls.label)}>
-										<span>
-											Name{" "}
-											<span {...stylex.props(controls.optional)}>optional</span>
-										</span>
+									{duplicateUrl ? (
+										<div id="connection-url-duplicate" role="status">
+											<Notice tone="warning">
+												You already have an MCP connection to this address. Add
+												it again only to use a different account or token. The
+												new one gets a number after its name, or you can enter a
+												name under Advanced options.
+											</Notice>
+										</div>
+									) : null}
+									<Disclosure summary="Advanced options">
+										<label {...stylex.props(controls.label)}>
+											<span>
+												Name{" "}
+												<span {...stylex.props(controls.optional)}>
+													optional
+												</span>
+											</span>
+											<input
+												{...stylex.props(controls.input)}
+												name="label"
+												maxLength={100}
+												placeholder="Detected from the server"
+											/>
+										</label>
+										<label {...stylex.props(controls.label)}>
+											<span>
+												Bearer token{" "}
+												<span {...stylex.props(controls.optional)}>
+													optional
+												</span>
+											</span>
+											<input
+												{...stylex.props(controls.input)}
+												name="bearer"
+												type="password"
+												autoComplete="off"
+												maxLength={4096}
+												aria-describedby="connection-bearer-hint"
+												data-ph-no-capture
+											/>
+											<span
+												id="connection-bearer-hint"
+												{...stylex.props(local.fieldMessage, local.hint)}
+											>
+												A password-like key that some servers give you. Leave it
+												empty if the server did not give you one.
+											</span>
+										</label>
+										<label
+											{...stylex.props(controls.label)}
+											htmlFor="connection-transport"
+										>
+											Transport
+											<SelectField
+												id="connection-transport"
+												name="transport"
+												aria-label="Transport"
+												defaultValue="auto"
+												items={[
+													{ value: "auto", label: "Detect automatically" },
+													{ value: "http", label: "Streamable HTTP" },
+													{ value: "sse", label: "Legacy HTTP + SSE" },
+												]}
+											/>
+											<span {...stylex.props(local.fieldMessage, local.hint)}>
+												How Toolstile talks to the server. Change it only if the
+												server's instructions name one.
+											</span>
+										</label>
+										<label
+											{...stylex.props(controls.label)}
+											htmlFor="connection-authentication"
+										>
+											Authentication
+											<SelectField
+												id="connection-authentication"
+												name="authentication"
+												aria-label="Authentication"
+												defaultValue="auto"
+												items={[
+													{ value: "auto", label: "Detect automatically" },
+													{ value: "oauth", label: "Sign in with OAuth" },
+													{
+														value: "headers",
+														label: "Bearer token or none",
+													},
+												]}
+											/>
+											<span {...stylex.props(local.fieldMessage, local.hint)}>
+												How you prove who you are to the server. Toolstile asks
+												you to sign in when the server needs it.
+											</span>
+										</label>
+									</Disclosure>
+									<p {...stylex.props(styles.formDescription)}>
+										Adding an MCP connection does not grant agent access.
+										{localCommands ? (
+											<>
+												{" "}
+												<button
+													type="button"
+													disabled={busy}
+													{...stylex.props(local.textButton)}
+													onClick={() => {
+														setConnectionError("");
+														setCommandForm(true);
+													}}
+												>
+													Run a local command instead
+												</button>
+											</>
+										) : null}
+									</p>
+								</>
+							)}
+							{modal === "agent" && (
+								<>
+									<label {...stylex.props(controls.label, local.firstField)}>
+										Agent name
 										<input
 											{...stylex.props(controls.input)}
 											name="label"
 											maxLength={100}
-											placeholder="Detected from the server"
-										/>
-									</label>
-									<label {...stylex.props(controls.label)}>
-										<span>
-											Bearer token{" "}
-											<span {...stylex.props(controls.optional)}>optional</span>
-										</span>
-										<input
-											{...stylex.props(controls.input)}
-											name="bearer"
-											type="password"
 											autoComplete="off"
-											maxLength={4096}
-											aria-describedby="connection-bearer-hint"
-											data-ph-no-capture
-										/>
-										<span
-											id="connection-bearer-hint"
-											{...stylex.props(local.fieldMessage, local.hint)}
-										>
-											A password-like key that some servers give you. Leave it
-											empty if the server did not give you one.
-										</span>
-									</label>
-									<label
-										{...stylex.props(controls.label)}
-										htmlFor="connection-transport"
-									>
-										Transport
-										<SelectField
-											id="connection-transport"
-											name="transport"
-											aria-label="Transport"
-											defaultValue="auto"
-											items={[
-												{ value: "auto", label: "Detect automatically" },
-												{ value: "http", label: "Streamable HTTP" },
-												{ value: "sse", label: "Legacy HTTP + SSE" },
-											]}
-										/>
-										<span {...stylex.props(local.fieldMessage, local.hint)}>
-											How Toolstile talks to the server. Change it only if the
-											server's instructions name one.
-										</span>
-									</label>
-									<label
-										{...stylex.props(controls.label)}
-										htmlFor="connection-authentication"
-									>
-										Authentication
-										<SelectField
-											id="connection-authentication"
-											name="authentication"
-											aria-label="Authentication"
-											defaultValue="auto"
-											items={[
-												{ value: "auto", label: "Detect automatically" },
-												{ value: "oauth", label: "Sign in with OAuth" },
-												{
-													value: "headers",
-													label: "Bearer token or none",
-												},
-											]}
-										/>
-										<span {...stylex.props(local.fieldMessage, local.hint)}>
-											How you prove who you are to the server. Toolstile asks
-											you to sign in when the server needs it.
-										</span>
-									</label>
-								</Disclosure>
-								<p {...stylex.props(styles.formDescription)}>
-									Adding an MCP connection does not grant agent access.
-								</p>
-							</>
-						)}
-						{modal === "agent" && (
-							<>
-								<label {...stylex.props(controls.label, local.firstField)}>
-									Agent name
-									<input
-										{...stylex.props(controls.input)}
-										name="label"
-										maxLength={100}
-										autoComplete="off"
-										data-autofocus
-										placeholder="Phone assistant"
-										aria-invalid={tokenErrors.label ? true : undefined}
-										aria-describedby={
-											tokenErrors.label ? "agent-label-error" : undefined
-										}
-										onChange={() =>
-											tokenErrors.label &&
-											setTokenErrors({ ...tokenErrors, label: undefined })
-										}
-									/>
-									{tokenErrors.label ? (
-										<FieldError id="agent-label-error">
-											{tokenErrors.label}
-										</FieldError>
-									) : null}
-								</label>
-								{tokenDevice ? (
-									<>
-										<input
-											type="hidden"
-											name="deviceId"
-											value={tokenDevice.id}
-										/>
-										<p {...stylex.props(styles.formDescription)}>
-											Device: <strong>{tokenDevice.label}</strong>
-										</p>
-									</>
-								) : activeDevices.length === 0 ? (
-									<label {...stylex.props(controls.label)}>
-										Device name
-										<input
-											{...stylex.props(controls.input)}
-											name="deviceName"
-											maxLength={100}
-											autoComplete="off"
-											defaultValue="My device"
-											aria-invalid={tokenErrors.deviceName ? true : undefined}
+											data-autofocus
+											placeholder="Phone assistant"
+											aria-invalid={tokenErrors.label ? true : undefined}
 											aria-describedby={
-												tokenErrors.deviceName
-													? "agent-device-error"
-													: undefined
+												tokenErrors.label ? "agent-label-error" : undefined
 											}
 											onChange={() =>
-												tokenErrors.deviceName &&
-												setTokenErrors({
-													...tokenErrors,
-													deviceName: undefined,
-												})
+												tokenErrors.label &&
+												setTokenErrors({ ...tokenErrors, label: undefined })
 											}
 										/>
-										{tokenErrors.deviceName ? (
-											<FieldError id="agent-device-error">
-												{tokenErrors.deviceName}
+										{tokenErrors.label ? (
+											<FieldError id="agent-label-error">
+												{tokenErrors.label}
 											</FieldError>
 										) : null}
 									</label>
-								) : activeDevices.length === 1 ? (
-									<input
-										type="hidden"
-										name="deviceId"
-										value={activeDevices[0].id}
-									/>
-								) : (
+									{tokenDevice ? (
+										<>
+											<input
+												type="hidden"
+												name="deviceId"
+												value={tokenDevice.id}
+											/>
+											<p {...stylex.props(styles.formDescription)}>
+												Device: <strong>{tokenDevice.label}</strong>
+											</p>
+										</>
+									) : activeDevices.length === 0 ? (
+										<label {...stylex.props(controls.label)}>
+											Device name
+											<input
+												{...stylex.props(controls.input)}
+												name="deviceName"
+												maxLength={100}
+												autoComplete="off"
+												defaultValue="My device"
+												aria-invalid={tokenErrors.deviceName ? true : undefined}
+												aria-describedby={
+													tokenErrors.deviceName
+														? "agent-device-error"
+														: undefined
+												}
+												onChange={() =>
+													tokenErrors.deviceName &&
+													setTokenErrors({
+														...tokenErrors,
+														deviceName: undefined,
+													})
+												}
+											/>
+											{tokenErrors.deviceName ? (
+												<FieldError id="agent-device-error">
+													{tokenErrors.deviceName}
+												</FieldError>
+											) : null}
+										</label>
+									) : activeDevices.length === 1 ? (
+										<input
+											type="hidden"
+											name="deviceId"
+											value={activeDevices[0].id}
+										/>
+									) : (
+										<label
+											{...stylex.props(controls.label)}
+											htmlFor="agent-device"
+										>
+											Device
+											<SelectField
+												id="agent-device"
+												name="deviceId"
+												aria-label="Device"
+												required
+												defaultValue={activeDevices[0].id}
+												items={activeDevices.map((device) => ({
+													value: device.id,
+													label: device.label,
+												}))}
+											/>
+										</label>
+									)}
 									<label
 										{...stylex.props(controls.label)}
-										htmlFor="agent-device"
+										htmlFor="agent-expiry"
 									>
-										Device
+										Token expiry
 										<SelectField
-											id="agent-device"
-											name="deviceId"
-											aria-label="Device"
-											required
-											defaultValue={activeDevices[0].id}
-											items={activeDevices.map((device) => ({
-												value: device.id,
-												label: device.label,
-											}))}
+											id="agent-expiry"
+											name="expiry"
+											aria-label="Token expiry"
+											defaultValue="90"
+											items={[
+												{ value: "30", label: "30 days" },
+												{ value: "90", label: "90 days" },
+												{ value: "365", label: "1 year" },
+												{ value: "never", label: "Never" },
+											]}
 										/>
 									</label>
-								)}
-								<label {...stylex.props(controls.label)} htmlFor="agent-expiry">
-									Token expiry
-									<SelectField
-										id="agent-expiry"
-										name="expiry"
-										aria-label="Token expiry"
-										defaultValue="90"
-										items={[
-											{ value: "30", label: "30 days" },
-											{ value: "90", label: "90 days" },
-											{ value: "365", label: "1 year" },
-											{ value: "never", label: "Never" },
-										]}
-									/>
-								</label>
-								<p {...stylex.props(styles.formDescription)}>
-									New agents start without MCP access. Configure their
-									permissions after connecting.
+									<p {...stylex.props(styles.formDescription)}>
+										New agents start without MCP access. Configure their
+										permissions after connecting.
+									</p>
+								</>
+							)}
+							{error && (
+								<p role="alert" {...stylex.props(controls.error)}>
+									{error}
 								</p>
-							</>
-						)}
-						{error && (
-							<p role="alert" {...stylex.props(controls.error)}>
-								{error}
-							</p>
-						)}
-						<footer {...stylex.props(styles.modalActions)}>
-							<button
-								{...stylex.props(controls.button)}
-								type="button"
-								onClick={() => onDialogChange(null)}
-							>
-								Cancel
-							</button>
-							<button
-								type="submit"
-								{...stylex.props(controls.button, controls.primary)}
-								disabled={busy}
-							>
-								{busy
-									? modal === "connection" && !addressConfirmed
-										? "Checking…"
-										: "Saving…"
-									: modal === "connection"
-										? !addressConfirmed
-											? checkedAddress
-												? "Check address"
-												: "Continue"
-											: duplicateUrl
-												? "Add anyway"
-												: "Add connection"
-										: "Create token"}
-							</button>
-						</footer>
-					</form>
+							)}
+							<footer {...stylex.props(styles.modalActions)}>
+								<button
+									{...stylex.props(controls.button)}
+									type="button"
+									onClick={() => onDialogChange(null)}
+								>
+									Cancel
+								</button>
+								<button
+									type="submit"
+									{...stylex.props(controls.button, controls.primary)}
+									disabled={busy}
+								>
+									{busy
+										? modal === "connection" && !addressConfirmed
+											? "Checking…"
+											: "Saving…"
+										: modal === "connection"
+											? !addressConfirmed
+												? checkedAddress
+													? "Check address"
+													: "Continue"
+												: duplicateUrl
+													? "Add anyway"
+													: "Add connection"
+											: "Create token"}
+								</button>
+							</footer>
+						</form>
+					)}
 				</ModalFrame>
 			)}
 			{token && (
@@ -1597,4 +1662,20 @@ const local = stylex.create({
 	},
 	// The card's gap already separates the footer from the body.
 	cardFooter: { marginTop: 0 },
+	textButton: {
+		padding: 0,
+		borderWidth: 0,
+		backgroundColor: "transparent",
+		color: colors.action,
+		fontSize: "inherit",
+		fontFamily: "inherit",
+		lineHeight: "inherit",
+		fontWeight: 500,
+		cursor: "pointer",
+		textDecoration: {
+			default: "none",
+			":hover": "underline",
+			":focus-visible": "underline",
+		},
+	},
 });

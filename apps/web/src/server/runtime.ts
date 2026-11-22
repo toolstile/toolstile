@@ -19,6 +19,7 @@ import type {
 	Actor,
 	ConnectConnectorInput,
 	connectionCreatedView,
+	LocalCommandInput,
 } from "@toolstile/api/contract";
 import {
 	type AccountServices,
@@ -85,11 +86,15 @@ import { type Transaction, transaction } from "@toolstile/database/transaction";
 import {
 	agentToolCatalog,
 	checkConnection,
+	checkLocalCommand,
+	closeLocalCommands,
 	connectionLabel,
 	createMcpGateway,
 	type DebugSql,
 	detectServerAddress,
 	inspect,
+	type LocalCommand,
+	LocalCommandError,
 	observeToolCatalog,
 	operationCapability,
 	permitted,
@@ -117,6 +122,11 @@ import { createAccountEmail } from "./account-email";
 import { createAccountService } from "./accounts";
 import { createInstanceApprovals } from "./approvals";
 import { catalogSource } from "./catalog";
+import {
+	commandLabel,
+	createLocalCommandRouter,
+	displayCommand,
+} from "./commands";
 import { createInstanceDebug } from "./debug";
 import { env } from "./env";
 import { accountFence, accountSessionIssuance, operatorsFence } from "./fences";
@@ -130,6 +140,7 @@ import {
 	authorizations,
 	grants,
 	invitations,
+	localCommands,
 	type profiles,
 } from "./schema";
 import { createSetupRouter } from "./setup";
@@ -463,6 +474,119 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		ownAgent,
 		ownConnection,
 	});
+	/** What a stored local command runs; the environment is decrypted only here, on the server. */
+	function localCommand(
+		row: typeof localCommands.$inferSelect | null | undefined,
+	): LocalCommand | undefined {
+		return row
+			? {
+					command: row.command,
+					args: row.args,
+					env: box.decrypt(row.encryptedEnv),
+				}
+			: undefined;
+	}
+	/** Local commands need the server's switch and, every time, an operator as their owner: a
+	 * child process runs as the server's user and could read the instance keys. */
+	async function commandOwner(actor: Actor, executor: DebugSql = pool) {
+		if (!env.localCommands)
+			throw new ORPCError("FORBIDDEN", {
+				message:
+					"Local commands are turned off on this server. Start it in local mode with TOOLSTILE_STDIO=on to use them.",
+			});
+		const profile = await active(actor.userId, executor);
+		if (!profile?.operator)
+			throw new ORPCError("FORBIDDEN", {
+				message: "Only instance operators can add and run local commands",
+			});
+	}
+	/**
+	 * Runs a local command's final checks and its (synchronous) spawn holding the owner's
+	 * account fence, which grant, agent, device and operator changes to that account take, so
+	 * none can commit between the last check and the start. Read committed and never retried:
+	 * each check reads the latest commit, and a spawn is never repeated.
+	 */
+	const commandStart = (actor: Actor, work: () => Promise<void>) =>
+		transaction(
+			pool,
+			async (tx) => {
+				// A request that waited for a slot may have outlived its session.
+				await checkAccount(tx, actor);
+				await work();
+			},
+			{
+				isolation: "read committed",
+				fences: [accountFence(actor.userId)],
+			},
+		);
+	/** Saves a local command after it started and answered the MCP handshake. */
+	async function addLocalCommand(
+		actor: Actor,
+		input: LocalCommandInput,
+		signal?: AbortSignal,
+	) {
+		// Checked before the command is started, so nobody else can run one through the check.
+		await commandOwner(actor);
+		const command = {
+			command: input.command,
+			args: input.args,
+			env: input.env,
+		};
+		try {
+			// Checked again once a slot is free, right before the command starts.
+			await checkLocalCommand(command, {
+				launch: (spawn) =>
+					commandStart(actor, async () => {
+						await commandOwner(actor);
+						spawn();
+					}),
+				signal,
+			});
+		} catch (error) {
+			if (error instanceof ORPCError) throw error;
+			throw new ORPCError("BAD_GATEWAY", {
+				message:
+					error instanceof LocalCommandError
+						? `Toolstile couldn't start this command: ${error.reason}`
+						: "Toolstile couldn't start this command.",
+			});
+		}
+		const id = randomUUID(),
+			label = input.label ?? commandLabel(input.command, input.args),
+			status = checkedStatus("headers");
+		await transaction(
+			pool,
+			async (tx) => {
+				await checkAccount(tx, actor);
+				await commandOwner(actor, tx);
+				await run(
+					tx,
+					db.insert(connections).values({
+						id,
+						ownerId: actor.userId,
+						label,
+						url: "",
+						transport: "stdio",
+						authentication: "headers",
+						encryptedHeaders: box.encrypt({}),
+						status,
+					}),
+				);
+				await run(
+					tx,
+					db.insert(localCommands).values({
+						connectionId: id,
+						command: input.command,
+						args: input.args,
+						encryptedEnv: box.encrypt(input.env),
+					}),
+				);
+			},
+			// A concurrent change of operators is serialized with this one.
+			{ fences: [operatorsFence, accountFence(actor.userId)] },
+		);
+		return { id, label, status };
+	}
 	async function createConnection(
 		actor: Actor,
 		input: Parameters<Services["addConnection"]>[1],
@@ -756,17 +880,27 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			});
 			await revokeUserConnections(actor.userId);
 		},
-		async agentCatalog(actor, input) {
+		async agentCatalog(actor, input, signal?: AbortSignal) {
 			const { current, upstream } = await toolTestContext(actor, input);
-			return { tools: await agentToolCatalog(current, upstream) };
+			return { tools: await agentToolCatalog(current, upstream, signal) };
 		},
-		async testTool(actor, input) {
+		async testTool(actor, input, signal?: AbortSignal) {
 			const { current, upstream } = await toolTestContext(actor, input);
-			return testAgentTool(current, upstream, input.name, input.arguments);
+			return testAgentTool(
+				current,
+				upstream,
+				input.name,
+				input.arguments,
+				signal,
+			);
 		},
 		async startConnectionOAuth(actor, input) {
 			if (!actor.sessionId) throw new ORPCError("UNAUTHORIZED");
-			await ownConnection(actor, input.id);
+			const connection = await ownConnection(actor, input.id);
+			if (connection.transport === "stdio")
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Local commands don't use browser sign-in",
+				});
 			return upstreamOAuth.begin(
 				{ userId: actor.userId, sessionId: actor.sessionId },
 				input.id,
@@ -812,8 +946,10 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					status: connections.status,
 					authentication: connections.authentication,
 					connectorId: connections.connectorId,
+					local: localCommands,
 				})
 				.from(connections)
+				.leftJoin(localCommands, eq(localCommands.connectionId, connections.id))
 				.where(eq(connections.ownerId, actor.userId))
 				// Status updates and renames rewrite rows, which reorders an unsorted scan.
 				.orderBy(connections.createdAt, connections.id);
@@ -855,10 +991,19 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					})),
 				connections: (
 					await connectionLogos(catalogSource(), ownConnections)
-				).map((c) => ({
+				).map(({ local, ...c }) => ({
 					...c,
+					// Names only: environment values never leave the server.
+					...(local
+						? {
+								command: displayCommand(local.command, local.args),
+								environment: Object.keys(
+									box.decrypt(local.encryptedEnv),
+								).sort(),
+							}
+						: {}),
 					authentication: c.authentication as "headers" | "oauth",
-					canManageAuthentication: true,
+					canManageAuthentication: c.transport !== "stdio",
 				})),
 				grants: ownGrants,
 				allAgentGrants: await db
@@ -869,6 +1014,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					.from(allAgentGrants)
 					.where(eq(allAgentGrants.ownerId, actor.userId)),
 				activity: events.map(activityItem),
+				localCommands: env.localCommands && !!profile?.operator,
 			};
 		},
 		async activityRequest(actor, id) {
@@ -1043,11 +1189,15 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			});
 			await revokeMcp(`${actor.userId}:${input.agentId}`);
 		},
-		async verify(actor, id) {
+		async verify(actor, id, signal?: AbortSignal) {
 			const connection = await inspectionUpstream(actor, id);
 			const runtime = userRuntime(actor, "Dashboard", undefined, id);
 			try {
-				const { inventory: _, ...result } = await inspect(runtime, connection);
+				const { inventory: _, ...result } = await inspect(
+					runtime,
+					connection,
+					signal,
+				);
 				// Sign-in states change only through sign-in; see connection-status.ts.
 				await db
 					.update(connections)
@@ -1060,10 +1210,12 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					);
 				return result;
 			} catch (error) {
-				// A server that did not answer may be briefly down; keep its stored status.
+				// A server that did not answer may be briefly down, and a cancelled check proved
+				// nothing; keep its stored status.
 				if (
 					error instanceof UpstreamUnavailableError ||
-					error instanceof ORPCError
+					error instanceof ORPCError ||
+					signal?.aborted
 				)
 					throw error;
 				await db
@@ -1106,8 +1258,13 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		const namespaces = await allocateNamespaces(pool, actor.userId, [
 			connection,
 		]);
+		const [local] = await db
+			.select()
+			.from(localCommands)
+			.where(eq(localCommands.connectionId, id));
 		return {
 			...connection,
+			command: localCommand(local),
 			namespace: namespaces.get(id),
 			toolReview: review.get(id),
 			identityKey: oauth?.grantId ?? connection.encryptedHeaders,
@@ -1168,12 +1325,13 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					return inspectionConnectionId
 						? [await inspectionUpstream(actor, inspectionConnectionId)]
 						: [];
-				const rows = await db
+				const found = await db
 					.select({
 						connection: connections,
 						rules: grants.rules,
 						allRules: allAgentGrants.rules,
 						oauthGrantId: connectionOAuth.grantId,
+						local: localCommands,
 					})
 					.from(connections)
 					.leftJoin(
@@ -1194,6 +1352,10 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 						connectionOAuth,
 						eq(connectionOAuth.connectionId, connections.id),
 					)
+					.leftJoin(
+						localCommands,
+						eq(localCommands.connectionId, connections.id),
+					)
 					.where(
 						and(
 							eq(connections.ownerId, actor.userId),
@@ -1203,6 +1365,13 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 							),
 						),
 					);
+				// Without the switch or an operator owner, local commands are left out rather
+				// than failing every list; opening one is refused again in validateCommand.
+				const runsCommands =
+					env.localCommands && !!(await active(actor.userId))?.operator;
+				const rows = found.filter(
+					(row) => runsCommands || row.connection.transport !== "stdio",
+				);
 				const reviews = await toolReview.forConnections(
 					pool,
 					actor.userId,
@@ -1222,6 +1391,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 				);
 				return rows.map((row) => ({
 					...row.connection,
+					command: localCommand(row.local),
 					namespace: namespaces.get(row.connection.id),
 					toolReview: reviews.get(row.connection.id),
 					identityKey: row.oauthGrantId ?? row.connection.encryptedHeaders,
@@ -1342,6 +1512,14 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					});
 			},
 			validateDestination: destinationPolicy.validateDestination,
+			async validateCommand(_upstream, start) {
+				if (!start) return commandOwner(actor);
+				await commandStart(actor, async () => {
+					await start.check();
+					await commandOwner(actor);
+					start.spawn();
+				});
+			},
 			fetch: destinationPolicy.fetch,
 			refusalHint: (reason) =>
 				new URL(
@@ -1704,6 +1882,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		...createAccountRouter(),
 		...createAllAgentGrantRouter(),
 		...createOperatorRouter(operatorService),
+		...createLocalCommandRouter(addLocalCommand),
 		...createSetupRouter({
 			pool,
 			services,
@@ -1984,6 +2163,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 					}
 				};
 				await attempt(closeStreams);
+				await attempt(closeLocalCommands);
 				await attempt(() => maintenance);
 				await attempt(() => upstreamOAuth.close());
 				await attempt(() => readinessPool.end());

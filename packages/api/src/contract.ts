@@ -150,11 +150,71 @@ export const connectConnectorInput = z
 	})
 	.strict();
 export type ConnectConnectorInput = z.infer<typeof connectConnectorInput>;
+/** A local command (an MCP server Toolstile starts over stdio), added by an instance operator. */
+export const localCommandInput = z
+	.object({
+		command: z
+			.string()
+			.trim()
+			.min(1, "Enter the command to run.")
+			.max(1024, "Use a command of 1,024 characters or fewer.")
+			.refine(
+				(value) => !controlCharacters.test(value),
+				"Remove line breaks and other control characters from the command.",
+			),
+		args: z
+			.array(
+				z
+					.string()
+					.max(4096, "Use arguments of 4,096 characters or fewer.")
+					.refine(
+						(value) => !value.includes("\0"),
+						"Arguments can't contain a null character.",
+					),
+			)
+			.max(100, "Use at most 100 arguments.")
+			.default([]),
+		/** Secrets: stored encrypted and never sent back; only the names are shown. */
+		env: z
+			.record(
+				z
+					.string()
+					.regex(
+						/^[A-Za-z_][A-Za-z0-9_]{0,127}$/,
+						"Use letters, digits and underscores in variable names, starting with a letter or underscore.",
+					),
+				z
+					.string()
+					.max(8192, "Use values of 8,192 characters or fewer.")
+					.refine(
+						(value) => !value.includes("\0"),
+						"Values can't contain a null character.",
+					),
+			)
+			.refine(
+				(value) => Object.keys(value).length <= 50,
+				"Use at most 50 environment variables.",
+			)
+			.default({}),
+		label: nameInput.optional(),
+	})
+	.strict();
+export type LocalCommandInput = z.infer<typeof localCommandInput>;
+export const localCommandCreatedView = z.object({
+	id: z.string(),
+	label: z.string(),
+	status: z.string(),
+});
 export const connectionView = z.object({
 	id: z.string(),
 	label: z.string(),
+	/** Empty for a local command. */
 	url: z.string(),
 	transport: z.string(),
+	/** A local command's program and arguments, for display. */
+	command: z.string().optional(),
+	/** A local command's environment variable names; values are never sent. */
+	environment: z.array(z.string()).optional(),
 	status: z.string(),
 	authentication: z.enum(["headers", "oauth"]).default("headers"),
 	canManageAuthentication: z.boolean().default(true),
@@ -218,6 +278,8 @@ export const snapshotView = z.object({
 	allAgentGrants: z
 		.array(z.object({ connectionId: z.string(), rules }))
 		.default([]),
+	/** True when this person may add local commands on this server. */
+	localCommands: z.boolean().optional(),
 });
 export type Snapshot = z.infer<typeof snapshotView>;
 export interface Actor {

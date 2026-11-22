@@ -40,7 +40,7 @@ The application owns its current PostgreSQL migration history in `apps/web/postg
 
 ## `@toolstile/gateway`
 
-`.` (server): the MCP gateway runtime (`createMcpGateway`), grant evaluation, approval gating, tool definition review, refusal explanations, debug capture, server detection, upstream OAuth and the outbound destination policy. Protocol support and limits are in [packages/gateway/README.md](../packages/gateway/README.md).
+`.` (server): the MCP gateway runtime (`createMcpGateway`), grant evaluation, approval gating, tool definition review, refusal explanations, debug capture, server detection, upstream OAuth, the outbound destination policy and local commands (stdio upstreams). Protocol support and limits are in [packages/gateway/README.md](../packages/gateway/README.md).
 
 ## `@toolstile/ui`
 

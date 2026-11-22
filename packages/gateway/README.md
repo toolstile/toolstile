@@ -21,6 +21,17 @@ these fixtures do not establish interoperability with native client applications
   separate message POSTs, discovery, tool execution, notifications, disconnect and
   explicit reconnection. This is upstream transport support; the gateway does
   not expose a separate downstream HTTP+SSE endpoint or a stdio transport.
+- **stdio sources (local commands):** `Upstream.command` with `transport: "stdio"`
+  starts a child process per operation (`LocalCommandTransport`) with the plain
+  `initialize` handshake. It runs only when `Runtime.validateCommand` allows it;
+  without that hook it fails closed. Every outgoing message passes the same
+  admission, approval and metering guard as an HTTP request body. At most 8
+  children run at once. Once a slot is held, `Runtime.validateCommand` repeats
+  the caller's checks, then the owner's role and switch, and starts the child
+  under the host's lock for access changes. A slot frees only when its child
+  has exited.
+  `closeLocalCommands` refuses queued and new starts, then stops them at
+  shutdown. Resource subscriptions and list-change watches skip stdio sources.
 
 Modern streams have **no SSE IDs, `Last-Event-ID` replay, or automatic re-listen**,
 as specified by [2026-07-28 Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).

@@ -14,6 +14,7 @@ import {
 import { activityOrigin } from "../packages/database/src/activity-origin";
 import { describe, expect, it, vi } from "vitest";
 import {
+	call,
 	createORPCClient,
 	RPCHandler,
 	RPCLink,
@@ -295,4 +296,43 @@ describe("activity origin", () => {
 		for (const label of ["Claude Code", "Dashboard agent", "Dashboard test"])
 			expect(activityOrigin(null, label), label).toBe("agent");
 	});
+});
+
+it("passes the request's signal to checks that open a server", async () => {
+	const actor = { userId: "u", scopeId: "u" };
+	const services = {
+		verify: vi.fn(async () => ({ tools: [], resources: [], prompts: [] })),
+		agentCatalog: vi.fn(async () => ({ tools: [] })),
+		testTool: vi.fn(async () => ({
+			isError: false,
+			preview: "",
+			truncated: false,
+		})),
+	};
+	const options = () => ({
+		context: { actor, services: services as unknown as Services },
+		signal: new AbortController().signal,
+	});
+	const router = createCommonRouter();
+	const verify = options();
+	await call(router.verify, { id: "c" }, verify);
+	expect(services.verify).toHaveBeenCalledWith(actor, "c", verify.signal);
+	const listed = options();
+	await call(router.agentCatalog, catalog, listed);
+	expect(services.agentCatalog).toHaveBeenCalledWith(
+		actor,
+		catalog,
+		listed.signal,
+	);
+	const tested = options();
+	await call(
+		router.testTool,
+		{ ...catalog, name: "search", arguments: {} },
+		tested,
+	);
+	expect(services.testTool).toHaveBeenCalledWith(
+		actor,
+		{ ...catalog, name: "search", arguments: {} },
+		tested.signal,
+	);
 });

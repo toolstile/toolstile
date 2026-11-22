@@ -132,7 +132,10 @@ export function createInstanceApprovals(options: {
 				return context
 					? {
 							...detail,
-							destination: new URL(context.url).origin,
+							// A local command has no network destination.
+							...(URL.canParse(context.url)
+								? { destination: new URL(context.url).origin }
+								: {}),
 							accountLabel: `${context.label} \u00B7 ${context.name}`,
 							requesterLabel: context.name,
 						}
