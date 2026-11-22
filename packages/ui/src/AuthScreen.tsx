@@ -322,6 +322,13 @@ export function AuthScreen({
 				},
 			);
 			const result = await readAuthResponse(response);
+			// The setup link created the account but could not sign in: sign in by hand.
+			if (setup && result.code === "SETUP_ACCOUNT_CREATED") {
+				window.location.assign(
+					`/auth/sign-in?${new URLSearchParams({ email: String(data.email ?? "").trim(), error: "SETUP_ACCOUNT_CREATED" })}`,
+				);
+				return;
+			}
 			if (!response.ok || !result.user || typeof result.user !== "object")
 				throw new Error(
 					authFailure(

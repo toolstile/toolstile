@@ -18,6 +18,8 @@ export function authFailure(
 		.toLowerCase()
 		.replaceAll("_", " ");
 	const recovery = context.recovery ? ", or recover your account below" : "";
+	if (code === "setup account created")
+		return "Your account was created. Sign in with the email and password you just set.";
 	if (/not linked|already linked/.test(code))
 		return `This email uses a different sign-in method. Sign in with your original method${recovery}.`;
 	if (/already exists|already registered/.test(code))

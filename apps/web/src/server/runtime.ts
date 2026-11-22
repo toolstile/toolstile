@@ -110,6 +110,7 @@ import {
 	notInArray,
 	or,
 } from "drizzle-orm";
+import { createEmailVerificationToken } from "better-auth/api";
 import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
 import { createAccountEmail } from "./account-email";
@@ -218,6 +219,33 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		token: string;
 	}>();
 	const oauthSelection = createOAuthSelectionStore(pool);
+	/** Queues the verification email of a new account (sign-up and setup link) when SMTP is set. */
+	const sendVerificationEmail = accountEmail.enabled
+		? async ({
+				user,
+				url,
+				token,
+			}: {
+				user: { id: string; email: string };
+				url: string;
+				token: string;
+			}) => {
+				if (user.email.endsWith("@users.invalid")) return;
+				await transaction(pool, async (tx) => {
+					await accountEmail.enqueue(
+						tx,
+						user.id,
+						digest(token),
+						{
+							to: user.email,
+							subject: "Verify your Toolstile email",
+							text: `Verify your recovery email: ${url}`,
+						},
+						new Date(Date.now() + 3600000),
+					);
+				});
+			}
+		: undefined;
 	const auth = createAuth({
 		database: db,
 		schema: authSchema,
@@ -256,24 +284,7 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 		canSignIn: async (userId) => {
 			await active(userId);
 		},
-		sendVerificationEmail: accountEmail.enabled
-			? async ({ user, url, token }) => {
-					if (user.email.endsWith("@users.invalid")) return;
-					await transaction(pool, async (tx) => {
-						await accountEmail.enqueue(
-							tx,
-							user.id,
-							digest(token),
-							{
-								to: user.email,
-								subject: "Verify your Toolstile email",
-								text: `Verify your recovery email: ${url}`,
-							},
-							new Date(Date.now() + 3600000),
-						);
-					});
-				}
-			: undefined,
+		sendVerificationEmail,
 		oauth: {
 			resource: `${env.BETTER_AUTH_URL}/mcp`,
 			selection: oauthSelection.lookup,
@@ -1632,15 +1643,39 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			passwordHash: await hashPassword(password),
 		}).catch(() => undefined);
 		if (!created) return refused();
+		if (sendVerificationEmail) {
+			// The link ordinary sign-up sends (Better Auth's /verify-email, valid one hour).
+			const token = await createEmailVerificationToken(
+				env.BETTER_AUTH_SECRET,
+				email,
+			);
+			await sendVerificationEmail({
+				user: { id: created, email },
+				token,
+				url: `${env.BETTER_AUTH_URL}/api/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent("/")}`,
+			}).catch(() => console.error("Verification email could not be queued"));
+		}
 		const headers = new Headers(request.headers);
 		headers.delete("content-length");
-		return auth.handler(
-			new Request(new URL("/api/auth/sign-in/email", request.url), {
-				method: "POST",
-				headers,
-				body: JSON.stringify({ email, password }),
-				signal: request.signal,
-			}),
+		const signedIn = await auth
+			.handler(
+				new Request(new URL("/api/auth/sign-in/email", request.url), {
+					method: "POST",
+					headers,
+					body: JSON.stringify({ email, password }),
+					signal: request.signal,
+				}),
+			)
+			.catch(() => undefined);
+		if (signedIn?.ok) return signedIn;
+		// The account exists and the link is spent: the person signs in on the sign-in page.
+		await signedIn?.body?.cancel();
+		return Response.json(
+			{
+				code: "SETUP_ACCOUNT_CREATED",
+				message: "Your account was created. Sign in to continue.",
+			},
+			{ headers: { "Cache-Control": "no-store" } },
 		);
 	}
 	async function actorFromRequest(request: Request): Promise<Actor> {

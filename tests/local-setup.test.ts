@@ -170,6 +170,7 @@ test.skipIf(!process.env.TEST_DATABASE_URL)(
 /** The production server alone, on PGlite, as `start` would run it but with `env`. */
 async function production(env: Record<string, string>) {
 	const port = await freePort();
+	const base = `http://127.0.0.1:${port}`;
 	const server = spawn(
 		process.execPath,
 		["apps/web/.output/server/index.mjs"],
@@ -178,6 +179,7 @@ async function production(env: Record<string, string>) {
 				...process.env,
 				BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
 				ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+				BETTER_AUTH_URL: base,
 				HOST: "127.0.0.1",
 				PORT: String(port),
 				NODE_ENV: "production",
@@ -188,7 +190,6 @@ async function production(env: Record<string, string>) {
 		},
 	);
 	servers.push(server);
-	const base = `http://127.0.0.1:${port}`;
 	const deadline = Date.now() + 30_000;
 	while (
 		!(await fetch(`${base}/health`).then(
@@ -200,24 +201,28 @@ async function production(env: Record<string, string>) {
 			throw new Error("The production server did not become ready");
 		await new Promise((done) => setTimeout(done, 100));
 	}
-	return base;
+	return { base, server };
 }
 
-test("the server refuses a setup link when the instance is not loopback-only", async () => {
+/** A migrated PGlite instance with a setup link and no accounts. */
+async function freshInstance() {
 	const directory = await temporary();
-	let token: string | undefined;
-	const { db, pool: instance } = openDatabase(`pglite:${directory}`);
+	const { db, pool } = openDatabase(`pglite:${directory}`);
 	try {
 		await migrateDatabase(db, {
 			migrationsFolder: "apps/web/postgres-migrations",
 		});
-		token = await issueSetupLink(instance);
+		return { directory, token: (await issueSetupLink(pool)) ?? "" };
 	} finally {
-		await instance.end();
+		await pool.end();
 	}
+}
+
+test("the server refuses a setup link when the instance is not loopback-only", async () => {
+	const { directory, token } = await freshInstance();
 	// An HTTPS origin is reached through a proxy, so `start` never offers it a link.
 	const origin = "https://gateway.example.test";
-	const base = await production({
+	const { base } = await production({
 		DATABASE_URL: `pglite:${directory}`,
 		BETTER_AUTH_URL: origin,
 	});
@@ -232,6 +237,61 @@ test("the server refuses a setup link when the instance is not loopback-only", a
 	});
 	expect(response.status).toBe(403);
 	expect((await response.json()).code).toBe("SETUP_LINK_UNAVAILABLE");
+}, 60_000);
+
+test("a setup account that cannot sign in automatically is sent to sign in, and its email is queued for verification", async () => {
+	const { directory, token } = await freshInstance();
+	const { base, server } = await production({
+		DATABASE_URL: `pglite:${directory}`,
+		// SMTP is configured but unreachable, so the queued message stays in the outbox.
+		SMTP_HOST: "127.0.0.1",
+		SMTP_PORT: String(await freePort()),
+		SMTP_FROM: "toolstile@example.test",
+	});
+	const post = (path: string, body: Record<string, unknown>) =>
+		fetch(`${base}/api/auth/${path}`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				origin: base,
+				"x-forwarded-for": "203.0.113.9",
+			},
+			body: JSON.stringify(body),
+		});
+	// Exhaust this address's sign-in allowance, so the automatic sign-in after setup fails.
+	let limited = false;
+	for (let attempt = 0; attempt < 10 && !limited; attempt++) {
+		const response = await post("sign-in/email", {
+			email: "nobody@example.com",
+			password: "not-the-password-1",
+		});
+		await response.body?.cancel();
+		limited = response.status === 429;
+	}
+	expect(limited).toBe(true);
+	const created = await post("sign-up/email", {
+		email: "owner@example.com",
+		password: "setup-link-test-password",
+		setupToken: token,
+	});
+	expect(created.headers.getSetCookie().join(";")).not.toContain(
+		"session_token=",
+	);
+	expect(await created.json()).toMatchObject({ code: "SETUP_ACCOUNT_CREATED" });
+	await stop(server);
+
+	const { pool } = openDatabase(`pglite:${directory}`);
+	try {
+		expect(
+			(
+				await pool.query(
+					'select p.operator, (select count(*)::int from account_email_outbox o where o."userId"=u.id) as queued from "user" u join profiles p on p."userId"=u.id',
+				)
+			).rows,
+		).toEqual([{ operator: true, queued: 1 }]);
+	} finally {
+		await pool.end();
+	}
 }, 60_000);
 
 const local = (data: string, ...args: string[]) =>
