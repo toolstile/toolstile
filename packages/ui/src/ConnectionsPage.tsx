@@ -259,7 +259,17 @@ export function ConnectionsPage({ navigation }: { navigation?: ReactNode }) {
 												</h2>
 											</div>
 											<div {...stylex.props(styles.connectionUrl)}>
-												<UrlText url={c.url} muted />
+												{/* A local command shows its command line and only the names of its variables. */}
+												<UrlText url={c.command ?? c.url} muted />
+												{c.environment?.length ? (
+													<span
+														title={c.environment.join(", ")}
+														{...stylex.props(local.connectionHint)}
+													>
+														{" "}
+														with {c.environment.join(", ")}
+													</span>
+												) : null}
 											</div>
 										</div>
 									</div>
@@ -275,7 +285,8 @@ export function ConnectionsPage({ navigation }: { navigation?: ReactNode }) {
 												title={note}
 												{...stylex.props(
 													local.connectionHint,
-													badgeLabel === "Unreachable" && local.connectionHintBad,
+													badgeLabel === "Unreachable" &&
+														local.connectionHintBad,
 												)}
 											>
 												{note}

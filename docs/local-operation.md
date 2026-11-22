@@ -85,6 +85,27 @@ The default origin is `http://127.0.0.1:4310`. The persistent directory defaults
 
 `init` never replaces an existing configuration and applies pending migrations. `start` also migrates before accepting requests. Stop with SIGINT/SIGTERM. After a restart, accounts, encrypted credentials, grants, approval deadlines and persistent maintenance/outbox work remain. Open protocol connections can be interrupted; reconnect the client. Uncertain upstream actions must not be replayed automatically. Maintenance retries due work every minute while the server is running. The bundled catalog works without toolstile.com; fetching a remote catalog is optional through `TOOLSTILE_CATALOG_FETCH`.
 
+## Local commands
+
+A local command is an MCP server that talks over standard input and output, such as one started with `npx` or `uvx`. Toolstile can run them in local mode. They are off unless you start the server with `TOOLSTILE_STDIO=on`:
+
+```sh
+TOOLSTILE_STDIO=on toolstile-server start
+TOOLSTILE_STDIO=on node scripts/local.mjs start
+```
+
+Only `on` and `off` (the default) are accepted. A server on a PostgreSQL database, which includes the container and Kubernetes packaging, refuses to start with `on`. It is a server setting, never a dashboard or instance setting.
+
+Each command runs as the operating-system user that runs Toolstile. It can read and change whatever that user can, including `instance.json` with the instance's encryption key and the `pglite/` data directory. For that reason only operators can add a local command, and a command runs only while its owner is still an operator and the switch is on. Members of the same instance cannot add or run one. Add only commands you trust, on a computer you control.
+
+An operator adds one under **Connections**: **Add connection**, then **Run a local command instead**. Enter the program, one argument per line, and environment variables as `NAME=value` lines. Toolstile starts the command once and completes the MCP handshake before saving it. Arguments are shown in the dashboard. Environment values are encrypted like headers, sent to the command only, and never shown again; the dashboard shows their names. The command gets exactly those variables plus `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL` and `TERM` from the server, never the rest of the server's environment.
+
+Toolstile starts a new process for every operation (a tool list, a call, a resource read) and stops it afterwards, like the per-operation connection it opens to remote servers. Expect each call to pay the command's start-up time. At most 8 commands run at once; others wait up to 30 seconds. A request that times out or is cancelled, and server shutdown, close the command's standard input, then send SIGTERM and SIGKILL if it keeps running. Only that process is signalled, so a command that leaves its own children running must stop them when its input closes. The end of its standard error, with configured values and long tokens hidden, appears in error messages only, never in activity or debug captures.
+
+Grants, blocks, Require approval, tool review, activity and debug capture work as they do for remote connections. A command that cannot start or exits early shows as unreachable. If the server restarts without `TOOLSTILE_STDIO=on`, local commands stay listed but are left out of agents' tools and checking them fails until it is on again.
+
+To use a stdio server from a container or Kubernetes deployment instead, run it behind a stdio-to-HTTP bridge on a host you control, such as [supergateway](https://github.com/supercorp-ai/supergateway) or [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy), and add the bridge's address as an ordinary connection. For example, `npx -y supergateway --stdio "npx -y @modelcontextprotocol/server-everything" --outputTransport streamableHttp --port 8000` serves it at `http://127.0.0.1:8000/mcp`. A private or loopback address is accepted while the instance allows private networks (Settings, Instance). The bridge has no authentication of its own, so keep it on loopback or a private network.
+
 ## Connecting agents with the CLI
 
 With the server running, the `toolstile` CLI (version 0.8.0 or later; earlier releases cannot sign in to or set up agents on this server) can sign in to it and set up the agent apps on this computer. Use the instance origin, `http://127.0.0.1:4310` by default:

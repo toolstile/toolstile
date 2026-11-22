@@ -66,7 +66,7 @@ node scripts/local.mjs start
 ## What it does
 
 - **One endpoint per agent.** Each agent sees only what it has been granted, combined from all of your connections.
-- **Any remote MCP server.** Add one by URL (Streamable HTTP or SSE) and sign in with OAuth or set headers. A bundled catalog fills in common servers.
+- **Any MCP server.** Add a remote one by URL (Streamable HTTP or SSE) and sign in with OAuth or set headers; a bundled catalog fills in common servers. In local mode, operators can also run stdio servers as local commands.
 - **Per-agent access.** Allow everything, including tools added later, or pick individual tools, resources and prompts. Blocks always win. Rules can apply to all agents, including future ones.
 - **Approvals.** Mark a tool *Require approval* and a call to it returns a review link instead of running. After you approve the exact arguments in your browser, the agent retries the identical call. See [approvals](docs/approvals.md).
 - **Tool review.** Turned on per connection: new or changed tool definitions are held until you accept them. See [tool review](docs/tool-review.md).
@@ -96,7 +96,7 @@ Use your own instance's `/mcp` address when self-hosting. A new agent starts wit
 
 ## Limitations
 
-- Remote MCP servers only; Toolstile does not run local stdio servers.
+- Stdio MCP servers run only in local mode, when the operator starts the server with `TOOLSTILE_STDIO=on` ([local commands](docs/local-operation.md#local-commands)). Container and Kubernetes deployments reach them through a stdio-to-HTTP bridge.
 - One application replica. MCP sessions reconnect after a restart.
 - Executables are published with each release; there is no container image yet. The `toolstile` npm package is the CLI that downloads and runs the server.
 - Local mode runs on macOS on Apple silicon and on Linux x64 and arm64, and CI tests the executable on all three. Windows is not supported. The container image you build is Linux.

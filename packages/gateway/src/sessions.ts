@@ -252,16 +252,19 @@ export function sessionHandler(
 		entry.closing = entry.server.close();
 		await entry.closing;
 	}
-	const timer = options.sweep === false ? undefined : setInterval(
-		() => {
-			for (const [key, bucket] of buckets)
-				if (Date.now() - bucket.updated >= 60_000) buckets.delete(key);
-			for (const entry of sessions.values())
-				if (!entry.active && Date.now() - entry.used >= idle)
-					void close(entry).catch(() => {});
-		},
-		Math.min(idle, 60_000),
-	);
+	const timer =
+		options.sweep === false
+			? undefined
+			: setInterval(
+					() => {
+						for (const [key, bucket] of buckets)
+							if (Date.now() - bucket.updated >= 60_000) buckets.delete(key);
+						for (const entry of sessions.values())
+							if (!entry.active && Date.now() - entry.used >= idle)
+								void close(entry).catch(() => {});
+					},
+					Math.min(idle, 60_000),
+				);
 	timer?.unref();
 	return {
 		async handle(request: Request, runtime: Runtime) {
@@ -310,8 +313,12 @@ export function sessionHandler(
 			const body = await request
 				.clone()
 				.json()
-                .then((value): Record<string,unknown> => value && typeof value === "object" ? value as Record<string,unknown> : {})
-                .catch((): Record<string,unknown> => ({}));
+				.then((value): Record<string, unknown> =>
+					value && typeof value === "object"
+						? (value as Record<string, unknown>)
+						: {},
+				)
+				.catch((): Record<string, unknown> => ({}));
 			if (body?.method !== "initialize") return fallback(request, runtime);
 			const release = reserve(key);
 			if (!release)
@@ -467,5 +474,8 @@ export const upstreamIdentity = (upstream: Upstream) =>
 			upstream.url,
 			upstream.transport,
 			upstream.headers,
+			// Only a local command adds its program, arguments and environment, so the
+			// identity of every remote connection (and its approvals) is unchanged.
+			...(upstream.command ? [upstream.command] : []),
 		]),
 	);

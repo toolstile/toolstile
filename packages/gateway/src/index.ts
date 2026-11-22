@@ -13,6 +13,7 @@ import {
 	SdkHttpError,
 	SSEClientTransport,
 	StreamableHTTPClientTransport,
+	type Transport,
 	UriTemplate,
 } from "@modelcontextprotocol/client";
 import {
@@ -59,6 +60,11 @@ import {
 	upstreamIdentity,
 	wireInteractions,
 } from "./sessions";
+import {
+	type LocalCommand,
+	LocalCommandError,
+	LocalCommandTransport,
+} from "./stdio";
 import { resourceSubscriptions } from "./subscriptions";
 import { withSessionCleanup } from "./upstream-cleanup";
 
@@ -68,6 +74,7 @@ export * from "./detect";
 export * from "./oauth";
 export * from "./refusal";
 export * from "./review";
+export * from "./stdio";
 
 import {
 	type CallToolResult,
@@ -101,9 +108,13 @@ export interface Upstream {
 	/** Readable, scope-unique and never reassigned (`linear`, `linear2`); exposed names are
 	 * `<namespace>__<upstream name>`. Without one, names use the opaque legacy alias. */
 	namespace?: string;
+	/** The remote server's address; empty for a local command. */
 	url: string;
+	/** `http` or `sse` for a remote server, `stdio` for a local command. */
 	transport: string;
 	headers: Record<string, string>;
+	/** What a `stdio` upstream runs; it starts only when the runtime's `validateCommand` allows it. */
+	command?: LocalCommand;
 	authProvider?: OAuthClientProvider | AuthProvider;
 	rules: Rules[];
 	/** When present, only tools whose live definition was reviewed are listed or run. */
@@ -146,6 +157,17 @@ interface RequestOperation {
 	};
 }
 const captureOperation = new AsyncLocalStorage<RequestOperation>();
+/** The fields of an outgoing JSON-RPC message that admission reads. */
+type WireMessage = {
+	id?: string | number;
+	method?: string;
+	params?: {
+		name?: string;
+		uri?: string;
+		ref?: { type?: string; name?: string; uri?: string };
+		[key: string]: unknown;
+	};
+};
 export interface Runtime {
 	/** Optional diagnostics. Never receives transport headers or authentication state. */
 	capture?: CaptureHook;
@@ -168,6 +190,8 @@ export interface Runtime {
 		durationMs: number,
 	): Promise<void>;
 	validateDestination(url: URL): Promise<void>;
+	/** Allows a local command (`transport: "stdio"`) to start now. Without it they never run. */
+	validateCommand?(upstream: Upstream): Promise<void>;
 	fetch?: typeof fetch;
 	/** Required for approval-gated tools; without it they fail closed. */
 	approvals?: RuntimeApprovals;
@@ -449,7 +473,12 @@ export async function openUpstream(
 		{
 			capabilities: gated ? {} : clientCapabilities(origins.getStore()),
 			versionNegotiation: {
-				mode: upstream.transport === "sse" ? "legacy" : "auto",
+				// A local command gets the plain initialize handshake: the negotiation probe would
+				// start a second child for every operation.
+				mode:
+					upstream.transport === "sse" || upstream.transport === "stdio"
+						? "legacy"
+						: "auto",
 			},
 		},
 	);
@@ -473,220 +502,282 @@ export async function openUpstream(
 	const opened = Date.now();
 	let connected = false,
 		unreachable = false;
-	const handshake = async (input: RequestInfo | URL, init?: RequestInit) => {
+	let local: LocalCommandTransport | undefined;
+	/**
+	 * Admission, approval and metering for one outgoing JSON-RPC message, whichever transport
+	 * carries it: the HTTP transports call this for each request body, the stdio transport for
+	 * each message it writes. `maintenance` sends protocol traffic (the handshake,
+	 * notifications and replies to the server) unadmitted; `forward` sends an admitted request.
+	 */
+	async function guard<T>(
+		payload: WireMessage | unknown[],
+		carry: {
+			maintenance(): Promise<T>;
+			forward(): Promise<{ value: T; ok: boolean; reauthenticate?: boolean }>;
+		},
+	): Promise<T> {
+		if (Array.isArray(payload))
+			throw new Error("JSON-RPC batches are not supported");
+		// Only protocol notifications travel without an id. A request method sent as a
+		// notification would skip admission, metering and approval.
+		if (
+			payload.method &&
+			payload.id === undefined &&
+			!String(payload.method).startsWith("notifications/")
+		)
+			throw new Error("Unsupported upstream notification");
+		// Transport handshake and notifications are protocol maintenance. Admit each
+		// forwarded JSON-RPC operation, including each list page, independently.
+		if (
+			!payload.method ||
+			payload.method === "initialize" ||
+			payload.method === "server/discover" ||
+			payload.id === undefined
+		) {
+			await assertExpected();
+			return carry.maintenance();
+		}
+		const context = captureOperation.getStore();
+		let permit: Permit | undefined;
+		if (
+			payload.method === "tools/call" &&
+			toolDecision(upstream.rules, String(payload.params?.name)) === "approval"
+		) {
+			// Defence in depth: every approval-gated wire must carry this call's claimed
+			// permit and exactly the reviewed parameters, whoever built the request.
+			permit = context?.permit;
+			if (!permit)
+				throw new ApprovalUnsupportedError(
+					"Approval-gated tool calls must go through approval",
+				);
+			if (
+				sha256Hex(
+					canonicalJson(gatedParameters(payload.params, approvalEnvelope)),
+				) !== permit.digest
+			)
+				throw new ApprovalUnsupportedError(
+					"Tool call parameters differ from the approved request",
+				);
+			if (
+				permit.state === "released" ||
+				(permit.state === "consumed" && !permit.resend)
+			)
+				throw new ApprovalUnsupportedError(
+					"An approved tool call is forwarded at most once",
+				);
+			permit.resend = false;
+		}
+		const key = String(payload.id),
+			id =
+				identities.get(key) ??
+				(context && !capturedOperations.has(context)
+					? context.operation.id
+					: randomUUID());
+		identities.set(key, id);
+		if (context) capturedOperations.add(context);
+		const operation: Operation = {
+			id,
+			connectionId: upstream.id,
+			method: payload.method,
+			maintenance: purpose === "maintenance",
+			target:
+				payload.params?.name ??
+				payload.params?.uri ??
+				payload.params?.ref?.name ??
+				payload.params?.ref?.uri,
+			...(payload.method === "completion/complete"
+				? {
+						capability:
+							payload.params?.ref?.type === "ref/prompt"
+								? ("prompts" as const)
+								: ("resources" as const),
+					}
+				: payload.method === "subscriptions/listen"
+					? { capability, target: _target }
+					: {}),
+			...(permit && context
+				? {
+						approval: {
+							id: permit.id,
+							operationId: context.operation.id,
+						},
+					}
+				: {}),
+		};
+		const started = Date.now();
 		try {
-			const response = await fetchWithoutRedirects(
-				runtime.fetch ?? fetch,
-				input,
-				init,
-			);
-			if (!connected && response.status >= 500) unreachable = true;
-			return response;
+			await assertExpected();
+			await runtime.admit(operation);
+			await assertExpected();
+			if (permit?.state === "claimed") {
+				// Spent before dispatch: a crash or ambiguous write never re-sends it.
+				// The store accepts only this exact claim (or its own earlier consumption
+				// during admission) and throws otherwise, so nothing is sent unclaimed.
+				if (!runtime.approvals)
+					throw new Error("Capability unavailable or access denied");
+				await runtime.approvals.settle(
+					permit.id,
+					context?.operation.id ?? id,
+					"consumed",
+				);
+				permit.state = "consumed";
+			}
 		} catch (error) {
-			if (!connected) unreachable = true;
+			if (permit?.state === "claimed") {
+				// Nothing was forwarded, so a known refusal returns the approval.
+				permit.state = "released";
+				await runtime.approvals
+					?.release(permit.id, context?.operation.id ?? id)
+					.catch(() => {});
+			}
+			// A denied retry has already finalized this identity. Do not let
+			// completion of the original request overwrite the security outcome.
+			if (context?.pending?.operation.id === id)
+				context.pending.finalized = true;
+			await runtime.record(operation, "denied", Date.now() - started);
 			throw error;
 		}
-	};
-	try {
-		const url = new URL(upstream.url);
-		await runtime.validateDestination(url);
-		const guardedFetch: typeof fetch = async (input, init) => {
-			const destination = new URL(
-				input instanceof Request ? input.url : String(input),
-			);
-			await runtime.validateDestination(destination);
-			// A redirect cannot carry stored credentials to a second destination.
-			const contentType = new Headers(init?.headers).get("content-type");
-			const payload =
-				typeof init?.body === "string" &&
-				contentType?.includes("application/json")
-					? JSON.parse(init.body)
-					: null;
-			if (Array.isArray(payload))
-				throw new Error("JSON-RPC batches are not supported");
-			// A POST always carries one JSON-RPC message. A body that can't be read here
-			// (another encoding, a stream or a Request body) would skip admission below.
-			const method = (
-				init?.method ?? (input instanceof Request ? input.method : "GET")
-			).toUpperCase();
-			if (
-				method === "POST" &&
-				(payload === null || typeof payload !== "object")
-			)
-				throw new Error("Unsupported upstream request body");
-			// Transport handshake and notifications are protocol maintenance. Admit each
-			// forwarded JSON-RPC operation, including each list page, independently.
-			// Cleanup may follow revocation: it only terminates the captured session,
-			// still validates its destination, and never admits another operation.
-			if (init?.method === "DELETE")
-				return fetchWithoutRedirects(runtime.fetch ?? fetch, input, init);
-			// Only protocol notifications travel without an id. A request method sent as a
-			// notification would skip admission, metering and approval.
-			if (
-				payload?.method &&
-				payload.id === undefined &&
-				!String(payload.method).startsWith("notifications/")
-			)
-				throw new Error("Unsupported upstream notification");
-			if (
-				!payload?.method ||
-				payload.method === "initialize" ||
-				payload.method === "server/discover" ||
-				payload.id === undefined
-			) {
-				await assertExpected();
-				return handshake(input, init);
-			}
-			const context = captureOperation.getStore();
-			let permit: Permit | undefined;
-			if (
-				payload.method === "tools/call" &&
-				toolDecision(upstream.rules, String(payload.params?.name)) ===
-					"approval"
-			) {
-				// Defence in depth: every approval-gated wire must carry this call's claimed
-				// permit and exactly the reviewed parameters, whoever built the request.
-				permit = context?.permit;
-				if (!permit)
-					throw new ApprovalUnsupportedError(
-						"Approval-gated tool calls must go through approval",
-					);
-				if (
-					sha256Hex(
-						canonicalJson(gatedParameters(payload.params, approvalEnvelope)),
-					) !== permit.digest
-				)
-					throw new ApprovalUnsupportedError(
-						"Tool call parameters differ from the approved request",
-					);
-				if (
-					permit.state === "released" ||
-					(permit.state === "consumed" && !permit.resend)
-				)
-					throw new ApprovalUnsupportedError(
-						"An approved tool call is forwarded at most once",
-					);
-				permit.resend = false;
-			}
-			const key = String(payload.id),
-				id =
-					identities.get(key) ??
-					(context && !capturedOperations.has(context)
-						? context.operation.id
-						: randomUUID());
-			identities.set(key, id);
-			if (context) capturedOperations.add(context);
-			const operation: Operation = {
-				id,
-				connectionId: upstream.id,
-				method: payload.method,
-				maintenance: purpose === "maintenance",
-				target:
-					payload.params?.name ??
-					payload.params?.uri ??
-					payload.params?.ref?.name ??
-					payload.params?.ref?.uri,
-				...(payload.method === "completion/complete"
-					? {
-							capability:
-								payload.params?.ref?.type === "ref/prompt"
-									? ("prompts" as const)
-									: ("resources" as const),
-						}
-					: payload.method === "subscriptions/listen"
-						? { capability, target: _target }
-						: {}),
-				...(permit && context
-					? {
-							approval: {
-								id: permit.id,
-								operationId: context.operation.id,
-							},
-						}
-					: {}),
+		let pending: RequestOperation["pending"];
+		if (context && id === context.operation.id) {
+			context.pending ??= {
+				operation,
+				started,
+				httpOutcome: "upstream_error",
 			};
-			const started = Date.now();
-			try {
-				await assertExpected();
-				await runtime.admit(operation);
-				await assertExpected();
-				if (permit?.state === "claimed") {
-					// Spent before dispatch: a crash or ambiguous write never re-sends it.
-					// The store accepts only this exact claim (or its own earlier consumption
-					// during admission) and throws otherwise, so nothing is sent unclaimed.
-					if (!runtime.approvals)
-						throw new Error("Capability unavailable or access denied");
-					await runtime.approvals.settle(
-						permit.id,
-						context?.operation.id ?? id,
-						"consumed",
+			pending = context.pending;
+		}
+		try {
+			const { value, ok, reauthenticate } = await carry.forward();
+			const outcome = ok ? "forwarded" : "upstream_error";
+			// The provider refused authentication before running the call; the SDK may
+			// re-send this same wire once after refreshing credentials.
+			if (permit) permit.resend = reauthenticate === true;
+			if (pending) pending.httpOutcome = outcome;
+			else await runtime.record(operation, outcome, Date.now() - started);
+			return value;
+		} catch (error) {
+			if (pending) pending.httpOutcome = "upstream_error";
+			else
+				await runtime.record(operation, "upstream_error", Date.now() - started);
+			throw error;
+		}
+	}
+	try {
+		let transport: Transport;
+		if (upstream.transport === "stdio") {
+			// A child process is not a network destination: the host's switch and the owner's
+			// role, checked here on every open, take the place of the destination policy.
+			if (!upstream.command || !runtime.validateCommand)
+				throw new Error("Local commands are turned off on this server");
+			await runtime.validateCommand(upstream);
+			await assertExpected();
+			const send = async (write: () => Promise<void>) => {
+				try {
+					await write();
+				} catch (error) {
+					if (!connected) unreachable = true;
+					throw error;
+				}
+			};
+			local = new LocalCommandTransport(upstream.command, {
+				signal,
+				// A written message is forwarded: stdio has no response status, and a logical
+				// request's outcome and duration are recorded when it completes.
+				guard: (message, write) =>
+					guard<void>(message as WireMessage, {
+						maintenance: () => send(write),
+						forward: async () => {
+							await send(write);
+							return { value: undefined, ok: true };
+						},
+					}),
+			});
+			transport = local;
+		} else {
+			const url = new URL(upstream.url);
+			await runtime.validateDestination(url);
+			const handshake = async (
+				input: RequestInfo | URL,
+				init?: RequestInit,
+			) => {
+				try {
+					const response = await fetchWithoutRedirects(
+						runtime.fetch ?? fetch,
+						input,
+						init,
 					);
-					permit.state = "consumed";
+					if (!connected && response.status >= 500) unreachable = true;
+					return response;
+				} catch (error) {
+					if (!connected) unreachable = true;
+					throw error;
 				}
-			} catch (error) {
-				if (permit?.state === "claimed") {
-					// Nothing was forwarded, so a known refusal returns the approval.
-					permit.state = "released";
-					await runtime.approvals
-						?.release(permit.id, context?.operation.id ?? id)
-						.catch(() => {});
-				}
-				// A denied retry has already finalized this identity. Do not let
-				// completion of the original request overwrite the security outcome.
-				if (context?.pending?.operation.id === id)
-					context.pending.finalized = true;
-				await runtime.record(operation, "denied", Date.now() - started);
-				throw error;
-			}
-			let pending: RequestOperation["pending"];
-			if (context && id === context.operation.id) {
-				context.pending ??= {
-					operation,
-					started,
-					httpOutcome: "upstream_error",
-				};
-				pending = context.pending;
-			}
-			try {
-				const response = await fetchWithoutRedirects(
-					runtime.fetch ?? fetch,
-					input,
-					init,
+			};
+			const guardedFetch: typeof fetch = async (input, init) => {
+				const destination = new URL(
+					input instanceof Request ? input.url : String(input),
 				);
-				const outcome = response.ok ? "forwarded" : "upstream_error";
-				// The provider refused authentication before running the call; the SDK may
-				// re-send this same wire once after refreshing credentials.
-				if (permit)
-					permit.resend =
-						response.status === 401 ||
-						(response.status === 403 &&
-							/insufficient_scope/i.test(
-								response.headers.get("www-authenticate") ?? "",
-							));
-				if (pending) pending.httpOutcome = outcome;
-				else await runtime.record(operation, outcome, Date.now() - started);
-				return response;
-			} catch (error) {
-				if (pending) pending.httpOutcome = "upstream_error";
-				else
-					await runtime.record(
-						operation,
-						"upstream_error",
-						Date.now() - started,
-					);
-				throw error;
-			}
-		};
-		const options = {
-			requestInit: { headers: upstream.headers },
-			fetch: guardedFetch,
-			authProvider: upstream.authProvider,
-		};
-		await assertExpected();
-		const transport =
-			upstream.transport === "sse"
-				? new SSEClientTransport(url, options)
-				: new StreamableHTTPClientTransport(url, options);
+				await runtime.validateDestination(destination);
+				// A redirect cannot carry stored credentials to a second destination.
+				const contentType = new Headers(init?.headers).get("content-type");
+				const payload: unknown =
+					typeof init?.body === "string" &&
+					contentType?.includes("application/json")
+						? JSON.parse(init.body)
+						: null;
+				if (Array.isArray(payload))
+					throw new Error("JSON-RPC batches are not supported");
+				// A POST always carries one JSON-RPC message. A body that can't be read here
+				// (another encoding, a stream or a Request body) would skip admission below.
+				const method = (
+					init?.method ?? (input instanceof Request ? input.method : "GET")
+				).toUpperCase();
+				if (
+					method === "POST" &&
+					(payload === null || typeof payload !== "object")
+				)
+					throw new Error("Unsupported upstream request body");
+				// Cleanup may follow revocation: it only terminates the captured session,
+				// still validates its destination, and never admits another operation.
+				if (init?.method === "DELETE")
+					return fetchWithoutRedirects(runtime.fetch ?? fetch, input, init);
+				return guard<Response>(
+					payload && typeof payload === "object"
+						? (payload as WireMessage)
+						: {},
+					{
+						maintenance: () => handshake(input, init),
+						forward: async () => {
+							const response = await fetchWithoutRedirects(
+								runtime.fetch ?? fetch,
+								input,
+								init,
+							);
+							return {
+								value: response,
+								ok: response.ok,
+								reauthenticate:
+									response.status === 401 ||
+									(response.status === 403 &&
+										/insufficient_scope/i.test(
+											response.headers.get("www-authenticate") ?? "",
+										)),
+							};
+						},
+					},
+				);
+			};
+			const options = {
+				requestInit: { headers: upstream.headers },
+				fetch: guardedFetch,
+				authProvider: upstream.authProvider,
+			};
+			await assertExpected();
+			transport =
+				upstream.transport === "sse"
+					? new SSEClientTransport(url, options)
+					: new StreamableHTTPClientTransport(url, options);
+		}
 		withSessionCleanup(client, transport);
 		await client.connect(transport, {
 			...interactionOptions(),
@@ -824,7 +915,10 @@ export async function openUpstream(
 		return client;
 	} catch (error) {
 		await client.close().catch(() => {});
-		if (unreachable)
+		// A local command that started but never completed the handshake is unreachable too,
+		// unless the handshake stopped because access changed.
+		const stopped = !!local?.spawned && !connected && !invalidated;
+		if (unreachable || stopped)
 			await runtime
 				.record(
 					{
@@ -837,7 +931,7 @@ export async function openUpstream(
 					Date.now() - opened,
 				)
 				.catch(() => {});
-		throw error;
+		throw stopped && local ? local.failure(error) : error;
 	}
 }
 
@@ -965,7 +1059,7 @@ export class UpstreamUnavailableError extends Error {
 	readonly reason: string;
 	constructor(url: string, reason: string, options?: ErrorOptions) {
 		super(
-			`Couldn't reach ${connectionLabel(url)} just now. Check that the server is online, then try again.`,
+			`Couldn't reach ${URL.canParse(url) ? connectionLabel(url) : url} just now. Check that the server is online, then try again.`,
 			options,
 		);
 		this.name = "UpstreamUnavailableError";
@@ -977,6 +1071,13 @@ class UpstreamNotMcpError extends UpstreamUnavailableError {
 	constructor(url: string, reason: string, options?: ErrorOptions) {
 		super(url, reason, options);
 		this.message = `Toolstile reached ${connectionLabel(url)}, but no MCP server answered at this address. Check the address; many MCP server addresses end in /mcp.`;
+	}
+}
+/** A local command that did not start or answer, with the end of its standard error. */
+class LocalCommandUnavailableError extends UpstreamUnavailableError {
+	constructor(label: string, error: LocalCommandError) {
+		super(label, error.reason, { cause: error });
+		this.message = `Couldn't start ${label}: ${error.reason}`;
 	}
 }
 function notMcpStatus(error: unknown) {
@@ -995,6 +1096,8 @@ async function dashboardCheck<T>(upstream: Upstream, work: () => Promise<T>) {
 	try {
 		return await work();
 	} catch (error) {
+		if (error instanceof LocalCommandError)
+			throw new LocalCommandUnavailableError(upstream.label, error);
 		const reason = upstreamUnreachable(error);
 		if (reason)
 			throw new UpstreamUnavailableError(upstream.url, reason, {

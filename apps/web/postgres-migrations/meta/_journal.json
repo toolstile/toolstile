@@ -36,6 +36,13 @@
       "when": 1795326359350,
       "tag": "0004_setup_link",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795330186647,
+      "tag": "0005_local_commands",
+      "breakpoints": true
     }
   ]
 }

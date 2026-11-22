@@ -84,6 +84,10 @@ export async function runLocal(args: string[], runtime: LocalRuntime) {
 		const origin = process.env.BETTER_AUTH_URL ?? "";
 		const local = offersSetupLink(origin, process.env.HOST ?? "");
 		const setup = local ? await withDatabase(issueSetupLink) : undefined;
+		if (process.env.TOOLSTILE_STDIO?.trim().toLowerCase() === "on")
+			console.log(
+				"Local commands are on: operators can add MCP servers that run on this computer as this user",
+			);
 		await runtime.startServer();
 		if (local && (await listening(origin)))
 			console.log(startMessage(origin, setup));
