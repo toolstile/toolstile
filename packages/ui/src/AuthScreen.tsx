@@ -468,7 +468,8 @@ export function AuthScreen({
 				</h1>
 				{setup ? (
 					<p {...stylex.props(authStyles.description)}>
-						Stays on this machine. Used only to sign in.
+						Your account is stored in this instance on your machine. If email is
+						set up, it also sends a verification link.
 					</p>
 				) : (
 					signup &&
