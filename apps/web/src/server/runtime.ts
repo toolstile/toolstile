@@ -501,7 +501,11 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			});
 	}
 	/** Saves a local command after it started and answered the MCP handshake. */
-	async function addLocalCommand(actor: Actor, input: LocalCommandInput) {
+	async function addLocalCommand(
+		actor: Actor,
+		input: LocalCommandInput,
+		signal?: AbortSignal,
+	) {
 		// Checked before the command is started, so nobody else can run one through the check.
 		await commandOwner(actor);
 		const command = {
@@ -510,8 +514,13 @@ It expires in 15 minutes. If you did not request recovery, ignore this message.`
 			env: input.env,
 		};
 		try {
-			await checkLocalCommand(command);
+			// Checked again once a slot is free, right before the command starts.
+			await checkLocalCommand(command, {
+				authorize: () => commandOwner(actor),
+				signal,
+			});
 		} catch (error) {
+			if (error instanceof ORPCError) throw error;
 			throw new ORPCError("BAD_GATEWAY", {
 				message:
 					error instanceof LocalCommandError

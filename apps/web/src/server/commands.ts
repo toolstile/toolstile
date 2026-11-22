@@ -50,6 +50,7 @@ export function createLocalCommandRouter(
 	add: (
 		actor: Actor,
 		input: LocalCommandInput,
+		signal?: AbortSignal,
 	) => Promise<z.infer<typeof localCommandCreatedView>>,
 ) {
 	const procedure = os.$context<{ actor: Actor }>();
@@ -57,6 +58,8 @@ export function createLocalCommandRouter(
 		addLocalCommand: procedure
 			.input(localCommandInput)
 			.output(localCommandCreatedView)
-			.handler(({ context, input }) => add(context.actor, input)),
+			.handler(({ context, input, signal }) =>
+				add(context.actor, input, signal),
+			),
 	};
 }

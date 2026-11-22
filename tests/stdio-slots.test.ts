@@ -1,0 +1,276 @@
+import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	CLIENT_CAPABILITIES_META_KEY,
+	CLIENT_INFO_META_KEY,
+	PROTOCOL_VERSION_META_KEY,
+} from "@modelcontextprotocol/server";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import {
+	closeLocalCommands,
+	createMcpGateway,
+	emptyRules,
+	type LocalCommand,
+	LocalCommandTransport,
+	type Operation,
+	openUpstream,
+	type Runtime,
+	resourceAlias,
+	type Upstream,
+} from "../packages/gateway/src/index";
+import { type Origin, origins } from "../packages/gateway/src/sessions";
+
+// One file per process: the slot pool and the shutdown state are process-wide.
+let directory = "";
+beforeAll(async () => {
+	directory = await mkdtemp(join(tmpdir(), "toolstile-stdio-slots-"));
+});
+afterAll(async () => {
+	await rm(directory, { recursive: true, force: true });
+});
+/** A child that records that it started, ignores its input closing and never answers. */
+const sleeper = (marker = join(directory, "unused")): LocalCommand => ({
+	command: process.execPath,
+	args: [
+		"-e",
+		`require("fs").writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000)`,
+	],
+	env: {},
+});
+const alive = (pid: number) => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+};
+const settled = async (promise: Promise<unknown>) => {
+	let done = false;
+	void promise.then(
+		() => (done = true),
+		() => (done = true),
+	);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	return done;
+};
+async function fill() {
+	const held = Array.from(
+		{ length: 8 },
+		() => new LocalCommandTransport(sleeper()),
+	);
+	await Promise.all(held.map((transport) => transport.start()));
+	return held;
+}
+
+it("runs at most eight children; a ninth waits, an aborted waiter never starts", async () => {
+	const held = await fill();
+	try {
+		const marker = join(directory, "ninth");
+		const ninth = new LocalCommandTransport(sleeper(marker));
+		const waiting = ninth.start();
+		const controller = new AbortController();
+		const authorize = vi.fn(async () => {});
+		const abandoned = new LocalCommandTransport(
+			sleeper(join(directory, "abandoned")),
+			{ authorize, signal: controller.signal },
+		);
+		const abandonedStart = abandoned.start();
+		expect(await settled(waiting)).toBe(false);
+		controller.abort();
+		await expect(abandonedStart).rejects.toThrow();
+		await held[0]?.close();
+		await waiting;
+		await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
+		expect(authorize).not.toHaveBeenCalled();
+		expect(abandoned.spawned).toBe(false);
+		expect(existsSync(join(directory, "abandoned"))).toBe(false);
+		await ninth.close();
+	} finally {
+		await Promise.all(held.map((transport) => transport.close()));
+	}
+}, 30_000);
+
+it("frees a slot only after the child exits, with one shared close", async () => {
+	const held = await fill();
+	try {
+		const first = held[0];
+		if (!first) throw new Error("No child");
+		const pidFile = join(directory, "first");
+		const slow = new LocalCommandTransport(sleeper(pidFile));
+		// Replace the first child with one whose pid this test reads.
+		await first.close();
+		await slow.start();
+		await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true));
+		const pid = Number(readFileSync(pidFile, "utf8"));
+		const next = new LocalCommandTransport(sleeper());
+		const nextStart = next.start();
+		const a = slow.close(),
+			b = slow.close();
+		expect(a).toBe(b);
+		// The child ignores its input closing, so it is still running for about two seconds.
+		expect(await settled(nextStart)).toBe(false);
+		await nextStart;
+		expect(alive(pid)).toBe(false);
+		await a;
+		await next.close();
+	} finally {
+		await Promise.all(held.map((transport) => transport.close()));
+	}
+}, 30_000);
+
+const source = (command: LocalCommand): Upstream => ({
+	id: "33333333-3333-3333-3333-333333333333",
+	label: "Files",
+	namespace: "files",
+	url: "",
+	transport: "stdio",
+	headers: {},
+	command,
+	rules: [{ ...emptyRules(), full: true }],
+});
+
+it("checks authorization again once a queued command gets its slot", async () => {
+	const held = await fill();
+	try {
+		const marker = join(directory, "demoted");
+		const upstream = source(sleeper(marker));
+		let operator = true;
+		const admitted: Operation[] = [];
+		const runtime: Runtime = {
+			connections: async () => [upstream],
+			admit: async (operation) => {
+				admitted.push(operation);
+			},
+			record: async () => {},
+			validateDestination: async () => {},
+			validateCommand: async () => {
+				if (!operator) throw new Error("Only instance operators");
+			},
+		};
+		const opening = openUpstream(
+			runtime,
+			upstream,
+			"tools/list",
+			undefined,
+			"tools",
+		);
+		expect(await settled(opening)).toBe(false);
+		// Demoted while waiting for a slot.
+		operator = false;
+		await held[0]?.close();
+		await expect(opening).rejects.toThrow("Only instance operators");
+		expect(existsSync(marker)).toBe(false);
+		expect(admitted).toEqual([]);
+	} finally {
+		await Promise.all(held.map((transport) => transport.close()));
+	}
+}, 30_000);
+
+it("never starts a queued command for an agent request that was cancelled", async () => {
+	const held = await fill();
+	try {
+		const marker = join(directory, "cancelled");
+		const upstream = source(sleeper(marker));
+		const runtime: Runtime = {
+			connections: async () => [upstream],
+			admit: async () => {},
+			record: async () => {},
+			validateDestination: async () => {},
+			validateCommand: async () => {},
+		};
+		const controller = new AbortController();
+		// The agent request being served, as the gateway's request handlers set it.
+		const origin = {
+			active: true,
+			server: { getClientCapabilities: () => ({}) },
+			context: { mcpReq: { signal: controller.signal, _meta: {} } },
+		} as unknown as Origin;
+		const opening = origins.run(origin, () =>
+			openUpstream(runtime, upstream, "tools/list", undefined, "tools"),
+		);
+		expect(await settled(opening)).toBe(false);
+		controller.abort();
+		await expect(opening).rejects.toThrow();
+		await held[0]?.close();
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(existsSync(marker)).toBe(false);
+	} finally {
+		await Promise.all(held.map((transport) => transport.close()));
+	}
+}, 30_000);
+
+it("never starts a local command for a subscription or list-change watch", async () => {
+	const marker = join(directory, "watched");
+	const upstream = source(sleeper(marker));
+	const runtime: Runtime = {
+		sessionKey: "owner:agent",
+		connections: async () => [upstream],
+		admit: async () => {},
+		check: async () => {},
+		record: async () => {},
+		validateDestination: async () => {},
+		validateCommand: async () => {},
+	};
+	const gateway = createMcpGateway();
+	const listen = (notifications: Record<string, unknown>) =>
+		gateway.handle(
+			new Request("https://gateway/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json, text/event-stream",
+					"MCP-Protocol-Version": "2026-07-28",
+					"Mcp-Method": "subscriptions/listen",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "subscriptions/listen",
+					params: {
+						notifications,
+						_meta: {
+							[PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+							[CLIENT_INFO_META_KEY]: { name: "watcher", version: "1" },
+							[CLIENT_CAPABILITIES_META_KEY]: {},
+						},
+					},
+				}),
+			}),
+			runtime,
+		);
+	try {
+		for (const notifications of [
+			{ toolsListChanged: true },
+			{ resourceSubscriptions: [resourceAlias(upstream.id, "file:///notes")] },
+		]) {
+			const response = await listen(notifications);
+			const reader = response.body?.getReader();
+			await reader?.read().catch(() => undefined);
+			await reader?.cancel().catch(() => undefined);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(existsSync(marker)).toBe(false);
+	} finally {
+		await gateway.close();
+	}
+});
+
+it("refuses queued and new starts at shutdown and stops running children", async () => {
+	const held = await fill();
+	const marker = join(directory, "queued");
+	const queued = new LocalCommandTransport(sleeper(marker));
+	const queuedStart = queued.start();
+	expect(await settled(queuedStart)).toBe(false);
+	const closing = closeLocalCommands();
+	await expect(queuedStart).rejects.toThrow("shutting down");
+	await closing;
+	expect(existsSync(marker)).toBe(false);
+	await expect(new LocalCommandTransport(sleeper()).start()).rejects.toThrow(
+		"shutting down",
+	);
+	// Every child was stopped; closing them again is harmless.
+	await Promise.all(held.map((transport) => transport.close()));
+}, 30_000);

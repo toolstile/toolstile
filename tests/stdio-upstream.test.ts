@@ -229,18 +229,16 @@ it("stops a child that does not answer before the request times out", async () =
 	}
 }, 15_000);
 
-it("explains a command that exits before the handshake without showing secrets", async () => {
-	const source = upstream(
-		undefined,
-		{ FIXTURE_TOKEN: "very-secret-token-value" },
-		["--fail"],
-	);
+it("explains a command that exits before the handshake without its output", async () => {
+	// A value too short to redact reliably: no output reaches the message at all.
+	const source = upstream(undefined, { FIXTURE_TOKEN: "x7q" }, ["--fail"]);
 	const f = runtime(source);
 	const error = await inspect(f.runtime, source).catch((reason) => reason);
 	expect(error).toBeInstanceOf(UpstreamUnavailableError);
-	expect(error.message).toMatch(/^Couldn't start Files: /);
-	expect(error.message).toContain("fixture cannot start; token [redacted]");
-	expect(error.message).not.toContain("very-secret-token-value");
+	expect(error.message).toBe(
+		"Couldn't start Files: the command exited before answering (exit code 3)",
+	);
+	expect(error.message).not.toContain("x7q");
 	expect(error.cause).toBeInstanceOf(LocalCommandError);
 	// Unreachable at the handshake: recorded once, never admitted.
 	expect(f.admitted).toEqual([]);

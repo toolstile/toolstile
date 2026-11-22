@@ -443,25 +443,29 @@ export async function openUpstream(
 			throw error;
 		}
 	}
-	await assertExpected();
-	await runtime.check?.(
-		upstream.id,
-		capability ??
-			operationCapability({
-				id: "",
-				connectionId: upstream.id,
-				method: purpose,
-			}),
-		_target,
-		// Dashboard checks ("discovery") and route validation ("routing") send only list requests.
-		{
-			catalog:
-				purpose === "discovery" ||
-				purpose === "routing" ||
-				catalogMethods.has(purpose),
-		},
-	);
-	await assertExpected();
+	/** The live checks before opening; a local command repeats them right before it starts. */
+	const authorizeOpen = async () => {
+		await assertExpected();
+		await runtime.check?.(
+			upstream.id,
+			capability ??
+				operationCapability({
+					id: "",
+					connectionId: upstream.id,
+					method: purpose,
+				}),
+			_target,
+			// Dashboard checks ("discovery") and route validation ("routing") send only list requests.
+			{
+				catalog:
+					purpose === "discovery" ||
+					purpose === "routing" ||
+					catalogMethods.has(purpose),
+			},
+		);
+		await assertExpected();
+	};
+	await authorizeOpen();
 	// An approved call runs without interactions: an upstream question would add input the
 	// reviewer never saw, so the gated client advertises none and wires no handlers.
 	const gated =
@@ -669,7 +673,8 @@ export async function openUpstream(
 			// role, checked here on every open, take the place of the destination policy.
 			if (!upstream.command || !runtime.validateCommand)
 				throw new Error("Local commands are turned off on this server");
-			await runtime.validateCommand(upstream);
+			const validateCommand = runtime.validateCommand.bind(runtime);
+			await validateCommand(upstream);
 			await assertExpected();
 			const send = async (write: () => Promise<void>) => {
 				try {
@@ -680,7 +685,15 @@ export async function openUpstream(
 				}
 			};
 			local = new LocalCommandTransport(upstream.command, {
-				signal,
+				// A request cancelled while it waits for a slot never starts the command.
+				signal:
+					signal ?? (interactionOptions() as { signal?: AbortSignal }).signal,
+				// Waiting for a slot can outlast the checks above: the owner's role, the switch
+				// and the caller's access are checked again right before the child starts.
+				authorize: async () => {
+					await validateCommand(upstream);
+					await authorizeOpen();
+				},
 				// A written message is forwarded: stdio has no response status, and a logical
 				// request's outcome and duration are recorded when it completes.
 				guard: (message, write) =>
@@ -1448,7 +1461,10 @@ function createGatewayServer(
 	if (hooks) {
 		const subscriptions = resourceSubscriptions(runtime, server, {
 			original: originalResource,
-			permitted: (upstream, uri) => permitted(upstream.rules, "resources", uri),
+			// A subscription would hold a local command's child open; not offered for them.
+			permitted: (upstream, uri) =>
+				upstream.transport !== "stdio" &&
+				permitted(upstream.rules, "resources", uri),
 			open: (upstream, uri) =>
 				openUpstream(
 					runtime,
@@ -1825,20 +1841,23 @@ export const createMcpGateway = (
 	const streams = modernSubscriptions(
 		{
 			original: originalResource,
+			// A watch would hold a local command's child open; stdio sources are never watched.
 			permitted: (upstream, kind, target) =>
-				target !== undefined
-					? permitted(upstream.rules, kind, target)
-					: upstream.rules.some(
-							(rule) =>
-								rule.full ||
-								(kind === "tools" &&
-									rule.requireApproval?.some((name) =>
+				upstream.transport === "stdio"
+					? false
+					: target !== undefined
+						? permitted(upstream.rules, kind, target)
+						: upstream.rules.some(
+								(rule) =>
+									rule.full ||
+									(kind === "tools" &&
+										rule.requireApproval?.some((name) =>
+											permitted(upstream.rules, kind, name),
+										)) ||
+									rule.allow[kind].some((name) =>
 										permitted(upstream.rules, kind, name),
-									)) ||
-								rule.allow[kind].some((name) =>
-									permitted(upstream.rules, kind, name),
-								),
-						),
+									),
+							),
 			open: (runtime, upstream, kind, target, signal) =>
 				openUpstream(runtime, upstream, "maintenance", target, kind, signal),
 		},

@@ -194,11 +194,12 @@ describe("local commands in local mode", () => {
 		const failed = await addLocalCommand("operator", {
 			command: process.execPath,
 			args: [script, "--fail"],
-			env: { FIXTURE_TOKEN: "never-shown-token-value" },
+			env: { FIXTURE_TOKEN: "x7q" },
 		});
 		expect(failed.status).toBe(502);
-		expect(failed.body.message).toContain("token [redacted]");
-		expect(failed.body.message).not.toContain("never-shown-token-value");
+		expect(failed.body.message).toBe(
+			"Toolstile couldn't start this command: the command exited before answering (exit code 3)",
+		);
 
 		const added = await addLocalCommand("operator", {
 			command: process.execPath,

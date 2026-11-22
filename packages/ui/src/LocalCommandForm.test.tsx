@@ -42,7 +42,10 @@ afterEach(() => {
 	root = undefined;
 	document.body.innerHTML = "";
 });
-function render(localCommands?: LocalCommandHost) {
+function render(
+	localCommands?: LocalCommandHost,
+	reload: () => Promise<void> = async () => undefined,
+) {
 	const container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
@@ -65,7 +68,7 @@ function render(localCommands?: LocalCommandHost) {
 					connectConnector: vi.fn(),
 				}}
 				localCommands={localCommands}
-				reload={async () => undefined}
+				reload={reload}
 				renderAccountMenu={() => null}
 				connectionAccessSummary={() => ""}
 				onSignOut={() => undefined}
@@ -121,4 +124,18 @@ it("explains a variable line without a name and sends nothing", async () => {
 	);
 	act(() => button("Use a server address instead")?.click());
 	expect(document.querySelector('[name="url"]')).not.toBeNull();
+});
+
+it("treats a saved command as added when the page then fails to refresh", async () => {
+	const add = vi.fn(async () => ({ id: "c-local" }));
+	const { onDialogChange } = render({ add }, async () => {
+		throw new Error("Network down");
+	});
+	act(() => button("Run a local command instead")?.click());
+	type("command", "uvx");
+	await act(async () => button("Add command")?.click());
+	expect(add).toHaveBeenCalledTimes(1);
+	// No failure inside the form that would invite adding it again.
+	expect(document.querySelector('[role="alert"]')).toBeNull();
+	expect(onDialogChange).toHaveBeenCalledWith(null);
 });

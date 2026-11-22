@@ -26,7 +26,10 @@ these fixtures do not establish interoperability with native client applications
   `initialize` handshake. It runs only when `Runtime.validateCommand` allows it;
   without that hook it fails closed. Every outgoing message passes the same
   admission, approval and metering guard as an HTTP request body. At most 8
-  children run at once, and `closeLocalCommands` stops them at shutdown.
+  children run at once; authorization is rechecked once a slot is held, right
+  before the child starts, and a slot frees only when its child has exited.
+  `closeLocalCommands` refuses queued and new starts, then stops them at
+  shutdown. Resource subscriptions and list-change watches skip stdio sources.
 
 Modern streams have **no SSE IDs, `Last-Event-ID` replay, or automatic re-listen**,
 as specified by [2026-07-28 Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).

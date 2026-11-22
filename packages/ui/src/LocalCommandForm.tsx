@@ -67,16 +67,22 @@ export function LocalCommandForm({
 		const label = String(fields.get("label") ?? "").trim();
 		setBusy(true);
 		setError("");
+		let created: { id: string };
 		try {
-			const created = await host.add({
+			created = await host.add({
 				command,
 				args: lines(String(fields.get("args") ?? "")),
 				env: environment.env ?? {},
 				...(label ? { label } : {}),
 			});
-			await onAdded(created.id);
 		} catch (cause) {
 			setError(errorMessage(cause));
+			setBusy(false);
+			return;
+		}
+		// The command is saved once its ID returns; what follows never reports a failed add.
+		try {
+			await onAdded(created.id);
 		} finally {
 			setBusy(false);
 		}
